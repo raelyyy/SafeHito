@@ -98,6 +98,15 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
@@ -126,7 +135,7 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.RenderEffect
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.style.TextAlign
+
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.viewinterop.AndroidView
 import coil.ImageLoader
@@ -144,8 +153,12 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
-
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.graphics.StrokeCap
 
@@ -154,8 +167,15 @@ import com.google.accompanist.pager.ExperimentalPagerApi
 import com.google.accompanist.pager.HorizontalPager
 import com.google.accompanist.pager.HorizontalPagerIndicator
 import com.google.accompanist.pager.rememberPagerState
+import com.google.android.gms.common.config.GservicesValue.value
 import java.time.LocalDate
 
+import com.google.accompanist.swiperefresh.SwipeRefresh
+import com.google.accompanist.swiperefresh.rememberSwipeRefreshState
+import com.google.accompanist.swiperefresh.SwipeRefreshIndicator
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.window.DialogProperties
+import com.capstone.safehito.ui.toProperCase
 
 @RequiresApi(Build.VERSION_CODES.P)
 @OptIn(ExperimentalMaterial3Api::class)
@@ -434,7 +454,9 @@ fun DashboardScreen(
     var forecastError by remember { mutableStateOf<String?>(null) }
     var isLoadingForecast by remember { mutableStateOf(true) }
 
-    LaunchedEffect(Unit) {
+    fun refreshWeatherData() {
+        isLoadingForecast = true
+        forecastError = null
         coroutineScope.launch {
             try {
                 forecastData = WeatherApi.retrofitService.getForecastByCity(
@@ -443,10 +465,33 @@ fun DashboardScreen(
                 )
             } catch (e: Exception) {
                 forecastError = "Failed to load forecast: ${e.localizedMessage}"
+                Log.e("WeatherRefresh", "Error refreshing weather: ${e.message}")
             } finally {
                 isLoadingForecast = false
             }
         }
+    }
+
+    fun refreshWeatherDataAsync(): kotlinx.coroutines.Job {
+        isLoadingForecast = true
+        forecastError = null
+        return coroutineScope.launch {
+            try {
+                forecastData = WeatherApi.retrofitService.getForecastByCity(
+                    cityName = "Candaba,PH",
+                    apiKey = "679a23f4f66196b14b59b8cc5bfca900"
+                )
+            } catch (e: Exception) {
+                forecastError = "Failed to load forecast: ${e.localizedMessage}"
+                Log.e("WeatherRefresh", "Error refreshing weather: ${e.message}")
+            } finally {
+                isLoadingForecast = false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        refreshWeatherData()
     }
 
     val gradientBrush = Brush.linearGradient(
@@ -458,13 +503,79 @@ fun DashboardScreen(
         end = Offset.Infinite
     )
 
+    var profileImageBase64 by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(uid) {
+        uid?.let {
+            val ref = FirebaseDatabase.getInstance().getReference("users/$it")
+            ref.child("profileImageBase64").get().addOnSuccessListener {
+                profileImageBase64 = it.value as? String
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Column(modifier = Modifier.padding(start = 10.dp)) {
-                        Text(text = greeting, fontSize = 12.sp, color = Color.Gray)
-                        Text(text = fullName.toProperCase(), style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Spacer(modifier = Modifier.width(12.dp))
+                        // Profile picture
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .clickable { onItemSelected("profile") }
+                                .background(Color.LightGray, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            val bitmap = profileImageBase64?.let { base64 ->
+                                try {
+                                    val decodedBytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+                                    android.graphics.BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
+                                } catch (e: Exception) { null }
+                            }
+                            if (bitmap != null && bitmap.width > 0 && bitmap.height > 0) {
+                                androidx.compose.foundation.Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = "Profile Picture",
+                                    modifier = Modifier.size(48.dp).clip(CircleShape),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                )
+                            } else {
+                                androidx.compose.foundation.Image(
+                                    painter = painterResource(id = R.drawable.default_profile),
+                                    contentDescription = "Default Profile",
+                                    modifier = Modifier.size(48.dp).clip(CircleShape),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.Start
+                        ) {
+                            Text(
+                                text = greeting,
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color.Gray
+                                ),
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                            Text(
+                                text = fullName.toProperCase(),
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(bottom = 10.dp)
+                            )
+                        }
                     }
                 },
                 actions = {
@@ -517,759 +628,669 @@ fun DashboardScreen(
         }*/
         containerColor = backgroundColor
     ) { innerPadding ->
-        Column(
+        var isRefreshing by remember { mutableStateOf(false) }
+        val swipeRefreshState = rememberSwipeRefreshState(isRefreshing)
+        val coroutineScope = rememberCoroutineScope()
+
+        SwipeRefresh(
+            state = swipeRefreshState,
+            onRefresh = {
+                isRefreshing = true
+                val uid = FirebaseAuth.getInstance().currentUser?.uid
+                coroutineScope.launch {
+                    try {
+                        // Refresh water data
+                        viewModel.refresh()
+                        
+                        // Force reload fish status
+                        uid?.let { viewModel.loadLatestFishStatus(it) }
+                        
+                        // Refresh weather data asynchronously
+                        val weatherJob = refreshWeatherDataAsync()
+                        
+                        // Wait for weather data to complete with timeout
+                        var timeout = 0
+                        while (isLoadingForecast && timeout < 50) { // 5 second timeout
+                            delay(100)
+                            timeout++
+                        }
+                        
+                        // Wait for weather job to complete
+                        weatherJob.join()
+                        
+                        // Additional delay to ensure all data is loaded and UI updates
+                        delay(300)
+                    } catch (e: Exception) {
+                        // Handle any errors during refresh
+                        Log.e("DashboardRefresh", "Error during refresh: ${e.message}")
+                    } finally {
+                        isRefreshing = false
+                    }
+                }
+            },
+            indicator = { state, trigger ->
+                SwipeRefreshIndicator(
+                    state = state,
+                    refreshTriggerDistance = trigger,
+                    backgroundColor = if (darkTheme) Color(0xFF2C2C2C) else Color.White,
+                    contentColor = Color(0xFF5DCCFC), // Your app's primary blue color
+                    scale = true,
+                    arrowEnabled = true,
+                )
+            },
             modifier = Modifier
-                .padding(innerPadding)
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 25.dp, vertical = 10.dp)
-                .padding(bottom = 20.dp)
+                .padding(innerPadding)
         ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 25.dp, vertical = 0.dp),
+                contentPadding = PaddingValues(bottom = 90.dp)
+            ) {
+                item {
+                    FishStatusCarouselPager(
+                        darkTheme = darkTheme,
+                        onItemSelected = onItemSelected
+                    )
 
-            FishStatusCarouselPager(
-                darkTheme = darkTheme,
-                onItemSelected = onItemSelected
-            )
+                    Spacer(modifier = Modifier.height(12.dp))
 
+                    Text("Water Quality Readings", style = MaterialTheme.typography.titleMedium, color = primaryTextColor)
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Text("Water Quality Readings", style = MaterialTheme.typography.titleMedium, color = primaryTextColor)
-            Spacer(modifier = Modifier.height(8.dp))
-
-
-
-            // FIRST ROW: Temperature & pH Level
-            Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
-                FlippableSensorCardWithModal(
-                    label = "Temperature",
-                    value = "$temperature °C",
-                    status = tempStatus,
-                    modifier = Modifier.weight(1f),
-                    onLongPress = {
-                        activeSensor = SensorData(
+                item {
+                    // FIRST ROW: Temperature & pH Level
+                    Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
+                        FlippableSensorCardWithModal(
                             label = "Temperature",
                             value = "$temperature °C",
                             status = tempStatus,
-                            description = "Water temperature affects fish activity and oxygen levels."
+                            modifier = Modifier.weight(1f),
+                            onLongPress = {
+                                activeSensor = SensorData(
+                                    label = "Temperature",
+                                    value = "$temperature °C",
+                                    status = tempStatus,
+                                    description = "Water temperature affects fish activity and oxygen levels."
+                                )
+                            },
+                            trendContent = {
+                                Text("28.1  →  28.3  →  28.0", fontSize = 14.sp)
+                            }
                         )
-                    },
-                    trendContent = {
-                        Text("28.1  →  28.3  →  28.0", fontSize = 14.sp)
-                    }
-                )
 
-
-                FlippableSensorCardWithModal(
-                    label = "pH Level",
-                    value = ph,
-                    status = phStatus,
-                    modifier = Modifier.weight(1f),
-                    onLongPress = {
-                        activeSensor = SensorData(
+                        FlippableSensorCardWithModal(
                             label = "pH Level",
                             value = ph,
                             status = phStatus,
-                            description = "pH level indicates how acidic or alkaline the water is."
+                            modifier = Modifier.weight(1f),
+                            onLongPress = {
+                                activeSensor = SensorData(
+                                    label = "pH Level",
+                                    value = ph,
+                                    status = phStatus,
+                                    description = "pH level indicates how acidic or alkaline the water is."
+                                )
+                            },
+                            trendContent = {
+                                Text("📊 pH Trend", style = MaterialTheme.typography.bodyMedium)
+                            }
                         )
-                    },
-                    trendContent = {
-                        Text("📊 pH Trend", style = MaterialTheme.typography.bodyMedium)
                     }
-                )
-            }
 
-            Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
 
-// SECOND ROW: Dissolved Oxygen & Turbidity
-            Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
-                FlippableSensorCardWithModal(
-                    label = "Dissolved Oxygen",
-                    value = "$dissolvedOxygen mg/L",
-                    status = oxygenStatus,
-                    modifier = Modifier.weight(1f),
-                    onLongPress = {
-                        activeSensor = SensorData(
+                item {
+                    // SECOND ROW: Dissolved Oxygen & Turbidity
+                    Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
+                        FlippableSensorCardWithModal(
                             label = "Dissolved Oxygen",
                             value = "$dissolvedOxygen mg/L",
                             status = oxygenStatus,
-                            description = "Dissolved oxygen is vital for fish survival."
+                            modifier = Modifier.weight(1f),
+                            onLongPress = {
+                                activeSensor = SensorData(
+                                    label = "Dissolved Oxygen",
+                                    value = "$dissolvedOxygen mg/L",
+                                    status = oxygenStatus,
+                                    description = "Dissolved oxygen is vital for fish survival."
+                                )
+                            },
+                            trendContent = {
+                                Text("💨 Oxygen Trend", style = MaterialTheme.typography.bodyMedium)
+                            }
                         )
-                    },
-                    trendContent = {
-                        Text("💨 Oxygen Trend", style = MaterialTheme.typography.bodyMedium)
-                    }
-                )
 
-                FlippableSensorCardWithModal(
-                    label = "Turbidity",
-                    value = "$turbidity NTU",
-                    status = turbidityStatus,
-                    modifier = Modifier.weight(1f),
-                    onLongPress = {
-                        activeSensor = SensorData(
+                        FlippableSensorCardWithModal(
                             label = "Turbidity",
                             value = "$turbidity NTU",
                             status = turbidityStatus,
-                            description = "Turbidity measures how clear or cloudy the water is."
-                        )
-                    },
-                    trendContent = {
-                        Text("🌫️ Turbidity Trend", style = MaterialTheme.typography.bodyMedium)
-                    }
-                )
-            }
-
-
-
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            if (activeSensor != null) {
-                ModalBottomSheet(
-                    onDismissRequest = { activeSensor = null },
-                    sheetState = sensorSheetState,
-                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-                    containerColor = MaterialTheme.colorScheme.surface
-                ) {
-                    val sensor = activeSensor!!
-                    val label = sensor.label.lowercase()
-                    val statusColor = when (sensor.status.lowercase()) {
-                        "optimal", "balanced", "adequate", "clear", "sufficient" -> Color(0xFF2E7D32)
-                        "too low", "too high", "acidic", "alkaline", "low oxygen", "murky", "low water level" -> Color(0xFFD32F2F)
-                        "unknown" -> Color(0xFF616161)
-                        else -> Color(0xFFEF6C00)
-                    }
-
-                    data class SensorStatus(
-                        val label: String,
-                        val color: Color
-                    )
-
-                    fun getSensorStatus(label: String, value: Float): SensorStatus {
-                        return when (label.lowercase()) {
-                            "ph", "ph level" -> when {
-                                value < 6.5f -> SensorStatus("Acidic", Color(0xFFD32F2F))
-                                value > 8.5f -> SensorStatus("Alkaline", Color(0xFFD32F2F))
-                                else -> SensorStatus("Balanced", Color(0xFF2E7D32))
-                            }
-                            "temperature" -> when {
-                                value < 24f -> SensorStatus("Too Low", Color(0xFFD32F2F))
-                                value > 30f -> SensorStatus("Too High", Color(0xFFD32F2F))
-                                else -> SensorStatus("Optimal", Color(0xFF2E7D32))
-                            }
-                            "dissolved oxygen" -> when {
-                                value < 3.5f -> SensorStatus("Low Oxygen", Color(0xFFD32F2F))
-                                value < 5.0f -> SensorStatus("Slightly Low", Color(0xFFFFA000))
-                                value <= 6.5f -> SensorStatus("Adequate", Color(0xFF2E7D32))
-                                else -> SensorStatus("High Oxygen", Color(0xFFFFA000))
-                            }
-                            "turbidity" -> when {
-                                value <= 50f -> SensorStatus("Clear", Color(0xFF2E7D32))
-                                value <= 125f -> SensorStatus("Slightly Murky", Color(0xFFFFA000))
-                                else -> SensorStatus("Murky", Color(0xFFD32F2F))
-                            }
-                            "water level" -> when {
-                                value >= 50f -> SensorStatus("Sufficient", Color(0xFF2E7D32))
-                                value < 50f -> SensorStatus("Low Water Level", Color(0xFFD32F2F))
-                                else -> SensorStatus("Unknown", Color(0xFF616161))
-                            }
-                            else -> SensorStatus("Unknown", Color(0xFF616161))
-                        }
-                    }
-
-                    val (currentValue, status) = when {
-                        label.contains("ph", ignoreCase = true) -> {
-                            val v = ph.toFloatOrNull() ?: 0f
-                            v to getSensorStatus("ph", v)
-                        }
-                        label.contains("temperature", ignoreCase = true) -> {
-                            val v = temperature.toFloatOrNull() ?: 0f
-                            v to getSensorStatus("temperature", v)
-                        }
-                        label.contains("oxygen", ignoreCase = true) -> {
-                            val v = dissolvedOxygen.toFloatOrNull() ?: 0f
-                            v to getSensorStatus("dissolved oxygen", v)
-                        }
-                        label.contains("turbidity", ignoreCase = true) -> {
-                            val v = turbidity.toFloatOrNull() ?: 0f
-                            v to getSensorStatus("turbidity", v)
-                        }
-                        label.contains("water level", ignoreCase = true) -> {
-                            val v = waterLevel.toFloatOrNull() ?: 0f
-                            v to getSensorStatus("water level", v)
-                        }
-                        else -> {
-                            val v = sensor.value.replace("[^0-9.]".toRegex(), "").toFloatOrNull() ?: 0f
-                            v to SensorStatus("Unknown", Color(0xFF616161))
-                        }
-                    }
-
-
-                    val icon = when {
-                        label.contains("ph", ignoreCase = true) -> Icons.Default.Science
-                        label.contains("temperature", ignoreCase = true) -> Icons.Default.Thermostat
-                        label.contains("oxygen", ignoreCase = true) -> Icons.Default.BubbleChart
-                        label.contains("turbidity", ignoreCase = true) -> Icons.Default.BlurOn
-                        label.contains("water level", ignoreCase = true) -> Icons.Default.Water
-                        else -> Icons.Default.Info
-                    }
-
-
-                    Column(modifier = Modifier.padding(24.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = icon,
-                                contentDescription = "Sensor Icon",
-                                tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(20.dp)
-                            )
-
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                "${sensor.label} Overview",
-                                style = MaterialTheme.typography.headlineSmall
-                            )
-                        }
-
-                        Spacer(Modifier.height(12.dp))
-
-                        Text("Current Value: $currentValue", style = MaterialTheme.typography.bodyLarge)
-                        Text("Status: ${status.label}", color = status.color, style = MaterialTheme.typography.bodyLarge)
-                        // Optional: Show description if you want
-                        // Text(sensor.description, style = MaterialTheme.typography.bodySmall)
-
-                        Spacer(Modifier.height(30.dp))
-
-                        val referenceTitle = when {
-                            label.contains("ph", ignoreCase = true) -> "pH Level Range Reference (Acidity)"
-                            label.contains("temperature", ignoreCase = true) -> "Temperature Range Reference (°C)"
-                            label.contains("oxygen", ignoreCase = true) -> "Dissolved Oxygen Reference (mg/L)"
-                            label.contains("turbidity", ignoreCase = true) -> "Water Clarity Reference (NTU)"
-                            label.contains("water level", ignoreCase = true) -> "Water Level Reference (cm)"
-                            else -> "Safe Range Reference"
-                        }
-
-                        Text(referenceTitle, style = MaterialTheme.typography.titleMedium)
-
-                        Spacer(Modifier.height(12.dp))
-
-                        when {
-                            label.contains("ph", ignoreCase = true) -> {
-                                SensorRangeChart("ph", currentValue)
-                            }
-                            label.contains("temperature", ignoreCase = true) -> {
-                                SensorRangeChart("temperature", currentValue)
-                            }
-                            label.contains("oxygen", ignoreCase = true) -> {
-                                SensorRangeChart("oxygen", currentValue)
-                            }
-                            label.contains("turbidity", ignoreCase = true) -> {
-                                SensorRangeChart("turbidity", currentValue)
-                            }
-                            label.contains("water level", ignoreCase = true) -> {
-                                SensorRangeChart("water level", currentValue)
-                            }
-                            else -> {
-                                if (currentValue > 0f) {
-                                    SensorRangeChart(sensor.label, currentValue)
-                                } else {
-                                    Text(
-                                        "Unable to show chart — value not recognized.",
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                }
-                            }
-                        }
-
-
-                        Spacer(Modifier.height(16.dp))
-
-                        val gradientBrush = Brush.linearGradient(
-                            colors = listOf(
-                                Color(0xFF5DCCFC), // bright cyan
-                                Color(0xFF007EF2)  // deep aqua blue – creates a real gradient feel
-                            ),
-                            start = Offset(0f, 0f),
-                            end = Offset.Infinite
-                        )
-
-                        Button(
-                            onClick = { activeSensor = null },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                            contentPadding = PaddingValues(), // remove default padding
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(42.dp) // optional: consistent height
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(brush = gradientBrush, shape = RoundedCornerShape(8.dp))
-                                    .padding(vertical = 12.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    "Close",
-                                    color = Color.White
-                                )
-                            }
-                        }
-
-                    }
-                }
-            }
-
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-
-
-            if (activeSensor != null) {
-                ModalBottomSheet(
-                    onDismissRequest = { activeSensor = null },
-                    sheetState = sensorSheetState,
-                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-                    containerColor = MaterialTheme.colorScheme.surface
-                ) {
-                    val sensor = activeSensor!!
-                    val label = sensor.label.lowercase()
-                    val statusColor = when (sensor.status.lowercase()) {
-                        "optimal", "balanced", "adequate", "clear", "sufficient" -> Color(0xFF2E7D32)
-                        "too low", "too high", "acidic", "alkaline", "low oxygen", "murky", "low water level" -> Color(0xFFD32F2F)
-                        "unknown" -> Color(0xFF616161)
-                        else -> Color(0xFFEF6C00)
-                    }
-
-                    data class SensorStatus(
-                        val label: String,
-                        val color: Color
-                    )
-
-                    fun getSensorStatus(label: String, value: Float): SensorStatus {
-                        return when (label.lowercase()) {
-                            "ph", "ph level" -> when {
-                                value < 6.5f -> SensorStatus("Acidic", Color(0xFFD32F2F))
-                                value > 8.5f -> SensorStatus("Alkaline", Color(0xFFD32F2F))
-                                else -> SensorStatus("Balanced", Color(0xFF2E7D32))
-                            }
-                            "temperature" -> when {
-                                value < 24f -> SensorStatus("Too Low", Color(0xFFD32F2F))
-                                value > 30f -> SensorStatus("Too High", Color(0xFFD32F2F))
-                                else -> SensorStatus("Optimal", Color(0xFF2E7D32))
-                            }
-                            "dissolved oxygen" -> when {
-                                value < 3.5f -> SensorStatus("Low Oxygen", Color(0xFFD32F2F))
-                                value < 5.0f -> SensorStatus("Slightly Low", Color(0xFFFFA000))
-                                value <= 6.5f -> SensorStatus("Adequate", Color(0xFF2E7D32))
-                                else -> SensorStatus("High Oxygen", Color(0xFFFFA000))
-                            }
-                            "turbidity" -> when {
-                                value <= 50f -> SensorStatus("Clear", Color(0xFF2E7D32))
-                                value <= 125f -> SensorStatus("Slightly Murky", Color(0xFFFFA000))
-                                else -> SensorStatus("Murky", Color(0xFFD32F2F))
-                            }
-                            "water level" -> when {
-                                value >= 50f -> SensorStatus("Sufficient", Color(0xFF2E7D32))
-                                value < 50f -> SensorStatus("Low Water Level", Color(0xFFD32F2F))
-                                else -> SensorStatus("Unknown", Color(0xFF616161))
-                            }
-                            else -> SensorStatus("Unknown", Color(0xFF616161))
-                        }
-                    }
-
-                    val (currentValue, status) = when {
-                        label.contains("ph", ignoreCase = true) -> {
-                            val v = ph.toFloatOrNull() ?: 0f
-                            v to getSensorStatus("ph", v)
-                        }
-                        label.contains("temperature", ignoreCase = true) -> {
-                            val v = temperature.toFloatOrNull() ?: 0f
-                            v to getSensorStatus("temperature", v)
-                        }
-                        label.contains("oxygen", ignoreCase = true) -> {
-                            val v = dissolvedOxygen.toFloatOrNull() ?: 0f
-                            v to getSensorStatus("dissolved oxygen", v)
-                        }
-                        label.contains("turbidity", ignoreCase = true) -> {
-                            val v = turbidity.toFloatOrNull() ?: 0f
-                            v to getSensorStatus("turbidity", v)
-                        }
-                        label.contains("water level", ignoreCase = true) -> {
-                            val v = waterLevel.toFloatOrNull() ?: 0f
-                            v to getSensorStatus("water level", v)
-                        }
-                        else -> {
-                            val v = sensor.value.replace("[^0-9.]".toRegex(), "").toFloatOrNull() ?: 0f
-                            v to SensorStatus("Unknown", Color(0xFF616161))
-                        }
-                    }
-
-
-                    val icon = when {
-                        label.contains("ph", ignoreCase = true) -> Icons.Default.Science
-                        label.contains("temperature", ignoreCase = true) -> Icons.Default.Thermostat
-                        label.contains("oxygen", ignoreCase = true) -> Icons.Default.BubbleChart
-                        label.contains("turbidity", ignoreCase = true) -> Icons.Default.BlurOn
-                        label.contains("water level", ignoreCase = true) -> Icons.Default.Water
-                        else -> Icons.Default.Info
-                    }
-
-
-                    Column(modifier = Modifier.padding(24.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = icon,
-                                contentDescription = "Sensor Icon",
-                                tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(20.dp)
-                            )
-
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                "${sensor.label} Overview",
-                                style = MaterialTheme.typography.headlineSmall
-                            )
-                        }
-
-                        Spacer(Modifier.height(12.dp))
-
-                        Text("Current Value: $currentValue", style = MaterialTheme.typography.bodyLarge)
-                        Text("Status: ${status.label}", color = status.color, style = MaterialTheme.typography.bodyLarge)
-                        // Optional: Show description if you want
-                        // Text(sensor.description, style = MaterialTheme.typography.bodySmall)
-
-                        Spacer(Modifier.height(30.dp))
-
-                        val referenceTitle = when {
-                            label.contains("ph", ignoreCase = true) -> "pH Level Range Reference (Acidity)"
-                            label.contains("temperature", ignoreCase = true) -> "Temperature Range Reference (°C)"
-                            label.contains("oxygen", ignoreCase = true) -> "Dissolved Oxygen Reference (mg/L)"
-                            label.contains("turbidity", ignoreCase = true) -> "Water Clarity Reference (NTU)"
-                            label.contains("water level", ignoreCase = true) -> "Water Level Reference (cm)"
-                            else -> "Safe Range Reference"
-                        }
-
-                        Text(referenceTitle, style = MaterialTheme.typography.titleMedium)
-
-                        Spacer(Modifier.height(12.dp))
-
-                        when {
-                            label.contains("ph", ignoreCase = true) -> {
-                                SensorRangeChart("ph", currentValue)
-                            }
-                            label.contains("temperature", ignoreCase = true) -> {
-                                SensorRangeChart("temperature", currentValue)
-                            }
-                            label.contains("oxygen", ignoreCase = true) -> {
-                                SensorRangeChart("oxygen", currentValue)
-                            }
-                            label.contains("turbidity", ignoreCase = true) -> {
-                                SensorRangeChart("turbidity", currentValue)
-                            }
-                            label.contains("water level", ignoreCase = true) -> {
-                                SensorRangeChart("water level", currentValue)
-                            }
-                            else -> {
-                                if (currentValue > 0f) {
-                                    SensorRangeChart(sensor.label, currentValue)
-                                } else {
-                                    Text(
-                                        "Unable to show chart — value not recognized.",
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                }
-                            }
-                        }
-
-
-                        Spacer(Modifier.height(16.dp))
-
-                        val gradientBrush = Brush.linearGradient(
-                            colors = listOf(
-                                Color(0xFF5DCCFC), // bright cyan
-                                Color(0xFF007EF2)  // deep aqua blue – creates a real gradient feel
-                            ),
-                            start = Offset(0f, 0f),
-                            end = Offset.Infinite
-                        )
-
-                        Button(
-                            onClick = { activeSensor = null },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                            contentPadding = PaddingValues(), // remove default padding
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(42.dp) // optional: consistent height
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(brush = gradientBrush, shape = RoundedCornerShape(8.dp))
-                                    .padding(vertical = 12.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    "Close",
-                                    color = Color.White
-                                )
-                            }
-                        }
-
-                    }
-                }
-            }
-
-
-            Text(
-                "Water Tank Status",
-                style = MaterialTheme.typography.titleMedium,
-                color = primaryTextColor
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            val context = LocalContext.current
-            val mediaPlayer = remember { MediaPlayer() }
-
-            DisposableEffect(Unit) {
-                onDispose {
-                    mediaPlayer.release()
-                }
-            }
-
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .wrapContentHeight()
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                    }
-                    .shadow(6.dp, RoundedCornerShape(20.dp))
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = {
-                                try {
-                                    mediaPlayer.reset()
-                                    val afd = context.resources.openRawResourceFd(R.raw.drop)
-                                    mediaPlayer.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-                                    afd.close()
-                                    mediaPlayer.prepare()
-                                    mediaPlayer.start()
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                }
-                            },
+                            modifier = Modifier.weight(1f),
                             onLongPress = {
-                                showSheet = true
+                                activeSensor = SensorData(
+                                    label = "Turbidity",
+                                    value = "$turbidity NTU",
+                                    status = turbidityStatus,
+                                    description = "Turbidity measures how clear or cloudy the water is."
+                                )
                             },
-                            onPress = {
-                                pressed = true
-                                tryAwaitRelease()
-                                pressed = false
+                            trendContent = {
+                                Text("🌫️ Turbidity Trend", style = MaterialTheme.typography.bodyMedium)
                             }
                         )
                     }
-            ) {
-                Box(
-                    modifier = Modifier
-                        .background(
-                            brush = Brush.linearGradient(
-                                colors = listOf(baseColor, deepColor),
-                                start = Offset.Zero,
-                                end = Offset.Infinite
-                            ),
-                            shape = RoundedCornerShape(20.dp)
-                        )
-                        .fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 16.dp, top = 16.dp, bottom = 16.dp, end = 32.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(end = 12.dp),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.Start
-                        ) {
-                            Text(
-                                text = evaluatedStatus,
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = statusTextColor
-                            )
 
-                            if (triggeredParams.isNotEmpty()) {
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Issue(s): ${triggeredParams.joinToString(", ")}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = statusTextColor
-                                )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                item {
+                    if (activeSensor != null) {
+                        ModalBottomSheet(
+                            onDismissRequest = { activeSensor = null },
+                            sheetState = sensorSheetState,
+                            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                            containerColor = MaterialTheme.colorScheme.surface
+                        ) {
+                            val sensor = activeSensor!!
+                            val label = sensor.label.lowercase()
+                            val statusColor = when (sensor.status.lowercase()) {
+                                "optimal", "balanced", "adequate", "clear", "sufficient" -> Color(0xFF2E7D32)
+                                "too low", "too high", "acidic", "alkaline", "low oxygen", "murky", "low water level" -> Color(0xFFD32F2F)
+                                "unknown" -> Color(0xFF616161)
+                                else -> Color(0xFFEF6C00)
                             }
 
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "$waterLevel Liters",
-                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                                color = Color.Black
+                            data class SensorStatus(
+                                val label: String,
+                                val color: Color
                             )
 
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Last Updated: $currentTime",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.DarkGray
-                            )
+                            fun getSensorStatus(label: String, value: Float): SensorStatus {
+                                return when (label.lowercase()) {
+                                    "ph", "ph level" -> when {
+                                        value < 6.5f -> SensorStatus("Acidic", Color(0xFFD32F2F))
+                                        value > 8.5f -> SensorStatus("Alkaline", Color(0xFFD32F2F))
+                                        else -> SensorStatus("Balanced", Color(0xFF2E7D32))
+                                    }
+                                    "temperature" -> when {
+                                        value < 24f -> SensorStatus("Too Low", Color(0xFFD32F2F))
+                                        value > 30f -> SensorStatus("Too High", Color(0xFFD32F2F))
+                                        else -> SensorStatus("Optimal", Color(0xFF2E7D32))
+                                    }
+                                    "dissolved oxygen" -> when {
+                                        value < 3.5f -> SensorStatus("Low Oxygen", Color(0xFFD32F2F))
+                                        value < 5.0f -> SensorStatus("Slightly Low", Color(0xFFFFA000))
+                                        value <= 6.5f -> SensorStatus("Adequate", Color(0xFF2E7D32))
+                                        else -> SensorStatus("High Oxygen", Color(0xFFFFA000))
+                                    }
+                                    "turbidity" -> when {
+                                        value <= 50f -> SensorStatus("Clear", Color(0xFF2E7D32))
+                                        value <= 125f -> SensorStatus("Slightly Murky", Color(0xFFFFA000))
+                                        else -> SensorStatus("Murky", Color(0xFFD32F2F))
+                                    }
+                                    "water level" -> when {
+                                        value < 20f -> SensorStatus("Low Water Level", Color(0xFFD32F2F))
+                                        value in 20f..50f -> SensorStatus("Sufficient", Color(0xFF2E7D32))
+                                        else -> SensorStatus("Unknown", Color(0xFF616161))
+                                    }
+
+                                    else -> SensorStatus("Unknown", Color(0xFF616161))
+                                }
+                            }
+
+                            val (currentValue, status) = when {
+                                label.contains("ph", ignoreCase = true) -> {
+                                    val v = ph.toFloatOrNull() ?: 0f
+                                    v to getSensorStatus("ph", v)
+                                }
+                                label.contains("temperature", ignoreCase = true) -> {
+                                    val v = temperature.toFloatOrNull() ?: 0f
+                                    v to getSensorStatus("temperature", v)
+                                }
+                                label.contains("oxygen", ignoreCase = true) -> {
+                                    val v = dissolvedOxygen.toFloatOrNull() ?: 0f
+                                    v to getSensorStatus("dissolved oxygen", v)
+                                }
+                                label.contains("turbidity", ignoreCase = true) -> {
+                                    val v = turbidity.toFloatOrNull() ?: 0f
+                                    v to getSensorStatus("turbidity", v)
+                                }
+                                label.contains("water level", ignoreCase = true) -> {
+                                    val v = sensor.value.replace("[^0-9.]".toRegex(), "").toFloatOrNull() ?: 0f
+                                    v to getSensorStatus("water level", v)
+                                }
+                                label.contains("tank status", ignoreCase = true) -> {
+                                    0f to SensorStatus(
+                                        evaluatedStatus.replaceFirstChar { it.uppercaseChar() },
+                                        when (evaluatedStatus.lowercase()) {
+                                            "normal", "good" -> Color(0xFF2E7D32) // green
+                                            "caution" -> Color(0xFF8D6E63)        // brown
+                                            "warning", "critical" -> Color(0xFFC62828) // red
+                                            else -> Color(0xFF616161)
+                                        }
+                                    )
+                                }
+                                else -> {
+                                    val v = sensor.value.replace("[^0-9.]".toRegex(), "").toFloatOrNull() ?: 0f
+                                    v to SensorStatus("Unknown", Color(0xFF616161))
+                                }
+                            }
+
+
+                            val icon = when {
+                                label.contains("ph", ignoreCase = true) -> Icons.Default.Science
+                                label.contains("temperature", ignoreCase = true) -> Icons.Default.Thermostat
+                                label.contains("oxygen", ignoreCase = true) -> Icons.Default.BubbleChart
+                                label.contains("turbidity", ignoreCase = true) -> Icons.Default.BlurOn
+                                label.contains("water level", ignoreCase = true) -> Icons.Default.Water
+                                else -> Icons.Default.Info
+                            }
+
+                            fun getTankStatusDescription(status: String, triggeredParams: List<String>): String {
+                                return when (status.lowercase()) {
+                                    "normal" -> "All water parameters are within safe range. No immediate action is required."
+                                    "caution" -> "Some parameters are approaching unsafe levels. Monitor the tank closely."
+                                    "warning", "critical" -> {
+                                        val issues = triggeredParams.joinToString(", ")
+                                        "Critical alert. The following parameters need attention: $issues."
+                                    }
+                                    else -> "Unable to determine tank condition at the moment."
+                                }
+                            }
+
+                            Column(modifier = Modifier.padding(24.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = "Sensor Icon",
+                                        tint = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        "${sensor.label} Overview",
+                                        style = MaterialTheme.typography.headlineSmall
+                                    )
+                                }
+
+                                Spacer(Modifier.height(12.dp))
+
+                                if (!label.contains("tank status", ignoreCase = true)) {
+                                    Text("Current Value: $currentValue", style = MaterialTheme.typography.bodyLarge)
+                                }
+                                Text("Status: ${status.label}", color = status.color, style = MaterialTheme.typography.bodyLarge)
+
+
+                                // Optional: Show description if you want
+                                // Text(sensor.description, style = MaterialTheme.typography.bodySmall)
+
+
+                                if (!label.contains("tank status", ignoreCase = true)) {
+                                    Spacer(Modifier.height(30.dp))
+
+                                    val referenceTitle = when {
+                                        label.contains("ph", ignoreCase = true) -> "pH Level Range Reference (Acidity)"
+                                        label.contains("temperature", ignoreCase = true) -> "Temperature Range Reference (°C)"
+                                        label.contains("oxygen", ignoreCase = true) -> "Dissolved Oxygen Reference (mg/L)"
+                                        label.contains("turbidity", ignoreCase = true) -> "Water Clarity Reference (NTU)"
+                                        label.contains("water level", ignoreCase = true) -> "Water Level Reference (cm)"
+                                        else -> "Safe Range Reference"
+                                    }
+
+                                    Text(referenceTitle, style = MaterialTheme.typography.titleMedium)
+                                    Spacer(Modifier.height(12.dp))
+
+                                    SensorRangeChart(sensorLabel = sensor.label, value = currentValue)
+                                }
+
+                                if (label.contains("tank status", ignoreCase = true)) {
+                                    val description = getTankStatusDescription(evaluatedStatus, triggeredParams)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(description, style = MaterialTheme.typography.bodySmall)
+                                }
+
+
+
+                                Spacer(Modifier.height(16.dp))
+
+                                val gradientBrush = Brush.linearGradient(
+                                    colors = listOf(
+                                        Color(0xFF5DCCFC), // bright cyan
+                                        Color(0xFF007EF2)  // deep aqua blue – creates a real gradient feel
+                                    ),
+                                    start = Offset(0f, 0f),
+                                    end = Offset.Infinite
+                                )
+
+                                Button(
+                                    onClick = { activeSensor = null },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                                    contentPadding = PaddingValues(), // remove default padding
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(42.dp) // optional: consistent height
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(brush = gradientBrush, shape = RoundedCornerShape(8.dp))
+                                            .padding(vertical = 12.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            "Close",
+                                            color = Color.White
+                                        )
+                                    }
+                                }
+
+                            }
                         }
+                    }
+                }
 
+                item {
+                    Spacer(modifier = Modifier.height(20.dp))
+
+
+
+
+
+                    Text(
+                        "Water Tank Status",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = primaryTextColor
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val context = LocalContext.current
+                    val mediaPlayer = remember { MediaPlayer() }
+                    val statusTextColor = when (evaluatedStatus.lowercase()) {
+                        "normal", "good" -> Color(0xFF2E7D32)        // ✅ Green for "All good"
+                        "caution" -> Color(0xFFFFA000)               // ✅ Yellow for "Caution"
+                        "warning", "infected", "critical" -> Color(0xFFC62828) // ✅ Red for "Check water"
+                        else -> Color.DarkGray
+                    }
+
+
+                    val waterLevelFloat = waterLevel.toFloatOrNull() ?: 0f
+
+                    val waterLevelStatus = when {
+                        waterLevelFloat < 20f -> "Low Water Level"
+                        waterLevelFloat in 20f..50f -> "Sufficient"
+                        else -> "Unknown"
+                    }
+
+
+                    DisposableEffect(Unit) {
+                        onDispose {
+                            mediaPlayer.release()
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // 🔹 Water Level Card (new unique color)
+                        FlippableSensorCardWithModal(
+                            label = "Water Level",
+                            value = "$waterLevel cm",
+                            status = waterLevelStatus,
+                            modifier = Modifier.weight(1f),
+                            onLongPress = {
+                                activeSensor = SensorData(
+                                    label = "Water Level",
+                                    value = "$waterLevel cm",
+                                    status = waterLevelStatus,
+                                    description = "Indicates how much water is in the tank."
+                                )
+                            },
+                            trendContent = {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = "Water Level Range Reference",
+                                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                        color = Color.Black
+                                    )
+
+                                    Spacer(modifier = Modifier.height(6.dp))
+
+                                    SensorRangeChart(sensorLabel = "Water Level", value = waterLevelFloat)
+                                }
+                            }
+                        )
+
+
+                        // 🔁 Tank Status Card (now flippable)
+                        FlippableSensorCardWithModal(
+                            label = "Tank Status",
+                            value = evaluatedStatus,
+                            status = if (triggeredParams.isEmpty()) "All good" else "Check water",
+                            statusColor = statusTextColor,
+                            modifier = Modifier.weight(1f),
+                            onLongPress = {
+                                activeSensor = SensorData(
+                                    label = "Tank Status",
+                                    value = evaluatedStatus,
+                                    status = if (triggeredParams.isEmpty()) "All good" else "Check water",
+                                    description = "Overall tank status based on sensor readings."
+                                )
+                            },
+                            trendContent = {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally // ✅ this centers the text
+                                ) {
+                                    val issues = listOfNotNull(
+                                        temperature.toDoubleOrNull()?.let {
+                                            if (it < 24.0) "Temp: Low" else if (it > 30.0) "Temp: High" else null
+                                        },
+                                        ph.toDoubleOrNull()?.let {
+                                            if (it < 6.5) "pH: Low" else if (it > 8.5) "pH: High" else null
+                                        },
+                                        dissolvedOxygen.toDoubleOrNull()?.let {
+                                            if (it < 3.5) "O₂: Low" else null
+                                        },
+                                        turbidity.toDoubleOrNull()?.let {
+                                            if (it > 125.0) "Turb: High" else null
+                                        },
+                                        waterLevel.toDoubleOrNull()?.let {
+                                            if (it < 20.0) "Lvl: Low" else null
+                                        }
+                                    )
+
+                                    if (issues.isEmpty()) {
+                                        Text(
+                                            text = "All parameters normal",
+                                            fontSize = 10.sp,
+                                            color = Color.White
+                                        )
+                                    } else {
+                                        val firstLine = issues.take(2).joinToString(" , ")
+                                        val secondLine = issues.drop(2).joinToString(" , ")
+
+                                        Text(
+                                            text = firstLine,
+                                            fontSize = 9.sp,
+                                            color = Color.Black
+                                        )
+                                        if (secondLine.isNotEmpty()) {
+                                            Text(
+                                                text = secondLine,
+                                                fontSize = 9.sp,
+                                                color = Color.Black
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+
+                        )
+
+
+
+                    }
+                }
+
+                item {
+                    // 🧾 Bottom Sheet: Detailed Tank Status
+                    if (showSheet) {
+                        ModalBottomSheet(
+                            sheetState = sheetState,
+                            onDismissRequest = { showSheet = false },
+                            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                            containerColor = MaterialTheme.colorScheme.surface
+                        ) {
+                            Column(modifier = Modifier.padding(24.dp)) {
+
+                                // 🧊 Header
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Filled.WaterDrop,
+                                        contentDescription = "Water Tank Icon",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = "Water Tank Details",
+                                        style = MaterialTheme.typography.headlineSmall,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                // 🟥 Status with accurate color
+                                val tankStatusColor = when (evaluatedStatus.lowercase()) {
+                                    "normal", "good" -> Color(0xFF2E7D32)        // Green
+                                    "caution" -> Color(0xFF8D6E63)               // Brown
+                                    "warning", "infected", "critical" -> Color(0xFFC62828) // Red
+                                    else -> Color.DarkGray
+                                }
+
+                                Text(
+                                    text = "Status: ${evaluatedStatus.replaceFirstChar { it.uppercaseChar() }}",
+                                    color = tankStatusColor,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+
+                                // 🟨 Triggered issues in two lines if needed
+                                if (triggeredParams.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text("Issues:", style = MaterialTheme.typography.bodySmall)
+
+                                    val firstLine = triggeredParams.take(2).joinToString(", ")
+                                    val secondLine = triggeredParams.drop(2).joinToString(", ")
+
+                                    Text(text = firstLine, style = MaterialTheme.typography.bodySmall)
+                                    if (secondLine.isNotEmpty()) {
+                                        Text(text = secondLine, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+
+                                // 💧 Water level
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "Water Level: $waterLevel Liters",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+
+                                // ⏱️ Last updated
+                                Text(
+                                    text = "Last Updated: $currentTime",
+                                    style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
+                                )
+
+                                Spacer(modifier = Modifier.height(20.dp))
+
+                                // 📊 Water Level Chart
+                                Text(
+                                    text = "Water Level Range Reference",
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                val waterLevelValue = waterLevel.toFloatOrNull() ?: 0f
+                                SensorRangeChart(sensorLabel = "Water Level", value = waterLevelValue)
+
+                                Spacer(modifier = Modifier.height(24.dp))
+
+                                // ✅ Button
+                                Button(
+                                    onClick = { showSheet = false },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                                    contentPadding = PaddingValues(),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(42.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(brush = gradientBrush, shape = RoundedCornerShape(8.dp)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "Got it!",
+                                            color = Color.White
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    if (isLoadingForecast) {
                         Box(
-                            modifier = Modifier.size(72.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 32.dp), // spacing above/below
                             contentAlignment = Alignment.Center
                         ) {
-                            Canvas(modifier = Modifier.fillMaxSize()) {
-                                val layers = listOf(1.0f, 0.8f, 0.6f, 0.4f, 0.25f)
-                                layers.forEachIndexed { index, scale ->
-                                    drawCircle(
-                                        color = baseColor.copy(alpha = 0.1f + (index * 0.02f)),
-                                        radius = size.minDimension * scale
-                                    )
-                                }
-                            }
-
-                            Icon(
-                                imageVector = Icons.Default.WaterDrop,
-                                contentDescription = "Tank Icon",
-                                tint = baseColor.copy(alpha = 1f).compositeOver(Color.Black.copy(alpha = 0.5f)),
-                                modifier = Modifier.size(72.dp)
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(32.dp)
                             )
                         }
                     }
-                }
-            }
-
-// 🧾 Bottom Sheet: Detailed Tank Status
-            if (showSheet) {
-                ModalBottomSheet(
-                    sheetState = sheetState,
-                    onDismissRequest = { showSheet = false },
-                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-                    containerColor = MaterialTheme.colorScheme.surface
-                ) {
-                    Column(modifier = Modifier.padding(24.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.WaterDrop,
-                                contentDescription = "Water Tank Icon",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = "Water Tank Details",
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Text("Status: $evaluatedStatus", color = modalStatusTextColor)
-
-                        if (triggeredParams.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("Issues: ${triggeredParams.joinToString(", ")}")
-                        }
-
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("Water Level: $waterLevel Liters")
-                        Text("Last Updated: $currentTime")
-
-                        Spacer(modifier = Modifier.height(20.dp))
-
-                        val waterLevelValue = waterLevel.toFloatOrNull() ?: 0f
-
-
-                        // ✅ Water Level Reference Chart
-                        Text("Water Level Range Reference", style = MaterialTheme.typography.titleMedium)
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        SensorRangeChart(sensorLabel = "Water Level", value = waterLevelValue)
-
-                        Spacer(modifier = Modifier.height(20.dp))
-
-                        Button(
-                            onClick = { showSheet = false },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                            contentPadding = PaddingValues(),
+                    else if (forecastError != null) {
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(42.dp)
+                                .padding(vertical = 32.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(brush = gradientBrush, shape = RoundedCornerShape(8.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "Got it!",
-                                    color = Color.White
-                                )
-                            }
+                            Text(
+                                text = forecastError ?: "",
+                                color = Color.Red,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
                         }
+                    }
+                    else if (forecastData != null) {
+                        ForecastResult(forecastData!!)
                     }
                 }
             }
-
-
-
-
-            if (isLoadingForecast) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 32.dp), // spacing above/below
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-            }
-            else if (forecastError != null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = forecastError ?: "",
-                        color = Color.Red,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-            }
-            else if (forecastData != null) {
-                ForecastResult(forecastData!!)
-            }
-
-
-
-
         }
     }
 }
@@ -1277,9 +1298,28 @@ fun DashboardScreen(
 
 
 
+@Composable
+fun StatusTag(label: String, status: String) {
+    val color = when (status.lowercase()) {
+        "too low", "too high" -> Color(0xFFFFA726) // orange
+        "normal" -> Color(0xFF66BB6A)              // green
+        else -> Color.LightGray
+    }
 
-
-
+    Box(
+        modifier = Modifier
+            .padding(2.dp)
+            .background(color.copy(alpha = 0.85f), RoundedCornerShape(4.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp) // tighter padding
+    ) {
+        Text(
+            text = "$label: $status",
+            color = Color.White,
+            fontSize = 10.sp,
+            maxLines = 1
+        )
+    }
+}
 
 
 
@@ -1356,7 +1396,7 @@ fun ForecastResult(data: ForecastResponse) {
     }
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(15.dp))
 
         // Header Row (title + toggle)
         Row(
@@ -1610,7 +1650,7 @@ fun ForecastResult(data: ForecastResponse) {
             }
         }
 
-        Spacer(modifier = Modifier.height(60.dp))
+        Spacer(modifier = Modifier.height(10.dp))
     }
 }
 
@@ -1643,19 +1683,33 @@ fun SensorCard(
     }
 
     val statusColor = when (status.lowercase()) {
-        "optimal", "balanced", "adequate", "clear", "sufficient" -> Color(0xFF2E7D32)
-        "too low", "too high", "acidic", "alkaline", "low oxygen", "murky", "low water level" -> Color(0xFFD32F2F)
+        "optimal", "balanced", "adequate", "clear", "sufficient", "all good" -> Color(0xFF2E7D32)
+        "too low", "too high", "acidic", "alkaline", "low oxygen", "murky", "low water level", "check water" -> Color(0xFFD32F2F)
         "unknown" -> Color(0xFF616161)
         else -> Color(0xFFEF6C00)
     }
+
 
     val (icon, baseColor, deepColor) = when (label.lowercase()) {
         "temperature" -> Triple(Icons.Default.Thermostat, Color(0xFFB3E5FC), Color(0xFF4FC3F7))
         "ph level" -> Triple(Icons.Default.Science, Color(0xFFFFE0B2), Color(0xFFFFB74D))
         "dissolved oxygen" -> Triple(Icons.Default.BubbleChart, Color(0xFFC8E6C9), Color(0xFF81C784))
         "turbidity" -> Triple(Icons.Default.BlurOn, Color(0xFFE1BEE7), Color(0xFFCE93D8))
+        "water level" -> Triple(Icons.Default.Water, Color(0xFFB2EBF2), Color(0xFF00ACC1)) // Aqua Mint
+
+        "tank status" -> {
+            val (statusBase, statusDeep) = when (value.lowercase()) {
+                "sufficient", "optimal", "good", "normal" -> Pair(Color(0xFFB2DFDB), Color(0xFF4DB6AC))
+                "warning", "infected", "low", "too low", "critical" -> Pair(Color(0xFFFFCDD2), Color(0xFFEF5350))
+                "high", "too high", "overflow" -> Pair(Color(0xFFD1C4E9), Color(0xFF7E57C2))
+                "unknown" -> Pair(Color(0xFFCFD8DC), Color(0xFF90A4AE))
+                else -> Pair(Color(0xFFFFECB3), Color(0xFFFFC107))
+            }
+            Triple(Icons.Default.Warning, statusBase, statusDeep)
+        }
         else -> Triple(Icons.Default.Info, Color(0xFFE0E0E0), Color(0xFFBDBDBD))
     }
+
 
     val iconTint = baseColor.copy(alpha = 1f).compositeOver(Color.Black.copy(alpha = 0.5f))
 
@@ -1722,16 +1776,31 @@ fun SensorCard(
 @Composable
 fun SensorCardBack(
     label: String,
+    sensorValue: String,
     modifier: Modifier = Modifier,
-    viewModel: WaterDataViewModel = viewModel()
+    viewModel: WaterDataViewModel = viewModel(),
+    trendContent: @Composable (() -> Unit)? = null
 ) {
     val (icon, baseColor, deepColor) = when (label.lowercase()) {
         "temperature" -> Triple(Icons.Default.Thermostat, Color(0xFFB3E5FC), Color(0xFF4FC3F7))
         "ph level" -> Triple(Icons.Default.Science, Color(0xFFFFE0B2), Color(0xFFFFB74D))
         "dissolved oxygen" -> Triple(Icons.Default.BubbleChart, Color(0xFFC8E6C9), Color(0xFF81C784))
         "turbidity" -> Triple(Icons.Default.BlurOn, Color(0xFFE1BEE7), Color(0xFFCE93D8))
+        "water level" -> Triple(Icons.Default.Water, Color(0xFFB2EBF2), Color(0xFF00ACC1)) // Aqua Mint
+
+        "tank status" -> {
+            val (statusBase, statusDeep) = when (sensorValue.lowercase()) {
+                "sufficient", "optimal", "good", "normal" -> Pair(Color(0xFFB2DFDB), Color(0xFF4DB6AC))
+                "warning", "infected", "low", "too low", "critical" -> Pair(Color(0xFFFFCDD2), Color(0xFFEF5350))
+                "high", "too high", "overflow" -> Pair(Color(0xFFD1C4E9), Color(0xFF7E57C2))
+                "unknown" -> Pair(Color(0xFFCFD8DC), Color(0xFF90A4AE))
+                else -> Pair(Color(0xFFFFECB3), Color(0xFFFFC107))
+            }
+            Triple(Icons.Default.Warning, statusBase, statusDeep)
+        }
         else -> Triple(Icons.Default.Info, Color(0xFFE0E0E0), Color(0xFFBDBDBD))
     }
+
 
     val cardHeight = 100.dp
 
@@ -1775,7 +1844,7 @@ fun SensorCardBack(
 
             // 🔵 Title stays pinned to the top
             Text(
-                text = "$label Trend",
+                text = if (label.lowercase() == "tank status") "Tank Status" else "$label Trend",
                 style = MaterialTheme.typography.bodyMedium.copy(
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 10.sp
@@ -1786,8 +1855,20 @@ fun SensorCardBack(
                     .padding(top = 10.dp)
             )
 
+
+
             // 🟣 Conditional content: either chart or fallback text (centered)
-            if (dataPoints.size > 1) {
+            if (label.lowercase() == "tank status" && trendContent != null) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = 32.dp, start = 8.dp, end = 8.dp, bottom = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    trendContent()
+                }
+            } else if (dataPoints.size > 1) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1807,6 +1888,8 @@ fun SensorCardBack(
                         .padding(top = 20.dp)
                 )
             }
+
+
         }
     }
 }
@@ -1888,6 +1971,7 @@ fun FlippableSensorCardWithModal(
     label: String,
     value: String,
     status: String,
+    statusColor: Color = Color.Black,
     modifier: Modifier = Modifier,
     onLongPress: () -> Unit,
     trendContent: @Composable () -> Unit
@@ -1946,13 +2030,15 @@ fun FlippableSensorCardWithModal(
         } else {
             SensorCardBack(
                 label = label,
+                sensorValue = value,
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        rotationY = -180f // also flipped clockwise
+                        rotationY = -180f
                         this.cameraDistance = cameraDistance
                         alpha = if (!frontVisible) 1f else 0f
-                    }
+                    },
+                trendContent = trendContent // ✅ Now passed through
             )
         }
     }
@@ -2108,8 +2194,6 @@ fun FishStatusCard(darkTheme: Boolean,onItemSelected: (String) -> Unit) {
     }
 
     var latestStatus by remember { mutableStateOf("Loading...") }
-
-    val statusClean = latestStatus.trim().lowercase()
 
     LaunchedEffect(uid) {
         if (uid != null) {
@@ -2390,16 +2474,15 @@ fun FishStatusCard(darkTheme: Boolean,onItemSelected: (String) -> Unit) {
                 Spacer(modifier = Modifier.height(2.dp))
 
                 // Determine emoji and color based on status
-                val statusClean = latestStatus.trim().lowercase()
-                val (emoji, statusColor) = when (latestStatus.trim().lowercase()) {
-                    "healthy" -> "🟢" to Color(0xFF43A047)
-                    "infected" -> "🔴" to Color(0xFFE53935)
-                    "no fish" -> "⚪" to MaterialTheme.colorScheme.onSurface
-                    "unknown" -> "❓" to Color(0xFFFB8C00)
+                val (emoji, statusColor) = when {
+                    latestStatus.trim().equals("Healthy", true) -> "🟢" to Color(0xFF43A047)
+                    latestStatus.trim().startsWith("Infected", true) -> "🔴" to Color(0xFFE53935)
+                    latestStatus.trim().equals("No Fish", true) -> "⚪" to MaterialTheme.colorScheme.onSurface
+                    latestStatus.trim().equals("Unknown", true) -> "❓" to Color(0xFFFB8C00)
                     else -> "🐟" to MaterialTheme.colorScheme.onSurface
                 }
 
-                val isLoading = statusClean == "loading..." || statusClean == "loading" || statusClean == "no data" || statusClean == "unknown"
+                val isLoading = latestStatus.trim().lowercase() == "loading..." || latestStatus.trim().lowercase() == "loading" || latestStatus.trim().lowercase() == "no data" || latestStatus.trim().lowercase() == "unknown"
 
 
                 val responsiveFontSize = when {
@@ -2455,9 +2538,9 @@ fun FishStatusCard(darkTheme: Boolean,onItemSelected: (String) -> Unit) {
                 label = "fishSpin"
             )
 
-            val fishImageRes = when (statusClean) {
-                "infected" -> R.drawable.hito_icon_infected1
-                "healthy" -> R.drawable.hito_icon
+            val fishImageRes = when {
+                latestStatus.trim().startsWith("Infected", true) -> R.drawable.hito_icon_infected1
+                latestStatus.trim().equals("Healthy", true) -> R.drawable.hito_icon
                 else -> R.drawable.hito_icon
             }
 
@@ -2532,19 +2615,19 @@ fun FishStatusCard(darkTheme: Boolean,onItemSelected: (String) -> Unit) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     if (showDialog) {
-        val detailsText = when (statusClean) {
-            "healthy" -> "The fish are healthy. No signs of infection detected in the latest scan. Continue regular monitoring."
-            "infected" -> "Signs of fungal infection have been detected. Immediate action is recommended — isolate affected fish and treat the aquaculture environment."
-            "no fish" -> "No fish were detected in the scan. Please try scanning again with a clearer image or check your diagnosis history."
-            "unknown" -> "The fish status could not be determined. Please perform a scan or review your diagnosis history for more information."
+        val detailsText = when {
+            latestStatus.trim().equals("Healthy", true) -> "The fish are healthy. No signs of infection detected in the latest scan. Continue regular monitoring."
+            latestStatus.trim().startsWith("Infected", true) -> "Signs of fungal infection have been detected. Immediate action is recommended — isolate affected fish and treat the aquaculture environment."
+            latestStatus.trim().equals("No Fish", true) -> "No fish were detected in the scan. Please try scanning again with a clearer image or check your diagnosis history."
+            latestStatus.trim().equals("Unknown", true) -> "The fish status could not be determined. Please perform a scan or review your diagnosis history for more information."
             else -> "Status information is unavailable or not recognized."
         }
 
-        val (emoji, statusColor) = when (statusClean) {
-            "healthy" -> "🟢" to Color(0xFF43A047)
-            "infected" -> "🔴" to Color(0xFFE53935)
-            "no fish" -> "⚪" to MaterialTheme.colorScheme.onSurface
-            "unknown" -> "❓" to MaterialTheme.colorScheme.onSurface
+        val (emoji, statusColor) = when {
+            latestStatus.trim().equals("Healthy", true) -> "🟢" to Color(0xFF43A047)
+            latestStatus.trim().startsWith("Infected", true) -> "🔴" to Color(0xFFE53935)
+            latestStatus.trim().equals("No Fish", true) -> "⚪" to MaterialTheme.colorScheme.onSurface
+            latestStatus.trim().equals("Unknown", true) -> "❓" to MaterialTheme.colorScheme.onSurface
             else -> "❓" to MaterialTheme.colorScheme.onSurface
         }
 
@@ -2553,7 +2636,7 @@ fun FishStatusCard(darkTheme: Boolean,onItemSelected: (String) -> Unit) {
             onDismiss = { showDialog = false }
         ) {
             Text(
-                text = "$emoji ${statusClean.replaceFirstChar { it.uppercase() }}",
+                text = "$emoji ${latestStatus.trim().replaceFirstChar { it.uppercase() }}",
                 color = statusColor,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold
@@ -2611,7 +2694,7 @@ fun FishStatusCarouselPager(
     onItemSelected: (String) -> Unit
 ) {
     val pagerState = rememberPagerState()
-    val cards = listOf("Main", "Summary", "One", "Two", "Three")
+    val cards = listOf("Main", "Summary", /*"One",*/ "Two", /*"Three"*/)
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp.dp
     val screenWidthDp = configuration.screenWidthDp
@@ -2637,13 +2720,13 @@ fun FishStatusCarouselPager(
                     var latestTimestamp = 0L
 
                     snapshot.children.forEach { scan ->
-                        val status = scan.child("status").getValue(String::class.java)?.lowercase()
+                        val status = scan.child("status").getValue(String::class.java) ?: ""
                         val rawTimestamp = scan.child("timestamp").getValue(Long::class.java) ?: 0L
                         val correctedTimestamp = if (rawTimestamp < 1000000000000L) rawTimestamp * 1000 else rawTimestamp
 
-                        val healthy = if (status == "healthy") 1 else 0
-                        val infected = if (status == "infected") 1 else 0
-                        val noFish = if (status == "no fish") 1 else 0
+                        val healthy = if (status.equals("Healthy", true)) 1 else 0
+                        val infected = if (status.startsWith("Infected", true)) 1 else 0
+                        val noFish = if (status.equals("No Fish", true)) 1 else 0
 
                         history.add(FishScanRecord(healthy, infected, noFish))
 
@@ -2652,7 +2735,7 @@ fun FishStatusCarouselPager(
                         }
                     }
 
-                    scanHistory = history.takeLast(7)
+                    scanHistory = history
                     lastScanDate = if (latestTimestamp > 0) {
                         SimpleDateFormat("MMMM dd, yyyy", Locale.getDefault()).format(Date(latestTimestamp))
                     } else {
@@ -2689,8 +2772,8 @@ fun FishStatusCarouselPager(
                     "Summary" -> FishSummaryCard(
                         scanHistory = scanHistory
                     )
-                    "One" -> FillerCardOne()
-                    "Two" -> FillerCardTwo()
+                    //"One" -> FillerCardOne()
+                    "Two" -> FishDiseaseGuideCard()
                     "Three" -> FillerCardThree()
                 }
             }
@@ -3063,14 +3146,28 @@ fun AnimatedGifPainterOne(): Painter {
 
 
 
+// Disease information data class
+data class DiseaseInfo(
+    val name: String,
+    val emoji: String,      // keep this for the card row
+    val imageRes: Int,      // use this in the modal
+    val scientificName: String,
+    val description: String,
+    val symptoms: String,
+    val treatment: String
+)
+
+
 @RequiresApi(Build.VERSION_CODES.P)
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun FillerCardTwo() {
+fun FishDiseaseGuideCard() {
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
     val scope = rememberCoroutineScope()
-    val tapRipples = remember { mutableStateListOf<Animatable<Float, AnimationVector1D>>() }
+    val tapRipples: MutableList<Animatable<Float, AnimationVector1D>> = remember { mutableStateListOf() }
     var tapOffset by remember { mutableStateOf(Offset.Zero) }
+    var showDiseaseModal by remember { mutableStateOf(false) }
+    var selectedDisease by remember { mutableStateOf<DiseaseInfo?>(null) }
 
     val responsiveBoxHeight = when {
         screenWidthDp < 340 -> 170.dp
@@ -3078,6 +3175,47 @@ fun FillerCardTwo() {
         screenWidthDp < 420 -> 210.dp
         else -> 230.dp
     }
+
+    val diseases = listOf(
+        DiseaseInfo(
+            name = "Cotton",
+            emoji = "🦠",
+            imageRes = R.drawable.ic_cotton,
+            scientificName = "Saprolegnia spp.",
+            description = "Fungal infection causing cotton-like growth",
+            symptoms = "Cotton-like growth on skin or fins",
+            treatment = "Antifungal medication, improve water quality"
+        ),
+        DiseaseInfo(
+            name = "White Patch",
+            emoji = "⚪",
+            imageRes = R.drawable.ic_whitepatch,
+            scientificName = "White spot disease",
+            description = "White spot disease is a common parasitic infection in fish",
+            symptoms = "Small white spots on body and fins, fish may scratch against objects",
+            treatment = "Increase water temperature, use anti-parasitic medication"
+        ),
+        DiseaseInfo(
+            name = "Reddish",
+            emoji = "🔴",
+            imageRes = R.drawable.ic_reddish,
+            scientificName = "Bacterial Infection",
+            description = "Bacterial infection causing red patches on fish skin",
+            symptoms = "Red patches or sores on body, lethargic behavior",
+            treatment = "Antibiotic treatment, improve water quality"
+        ),
+        DiseaseInfo(
+            name = "Ulcer",
+            emoji = "🟤",
+            imageRes = R.drawable.ic_ulcer,
+            scientificName = "Bacterial Ulcer",
+            description = "Open wounds with bacterial infection",
+            symptoms = "Open wounds or ulcers, weight loss and poor appetite",
+            treatment = "Antibiotic treatment, wound care, isolate affected fish"
+        )
+    )
+
+
 
     Box(
         modifier = Modifier
@@ -3110,12 +3248,12 @@ fun FillerCardTwo() {
             modifier = Modifier.matchParentSize()
         )
 
-        // Blur overlay
+        // Blurred overlay
         Box(
             modifier = Modifier
                 .matchParentSize()
-//                .blur(16.dp)
-//                .background(Color(0xAA222222))
+                .blur(16.dp)
+                .background(Color(0xAA222222))
         )
 
         // Ripple animation
@@ -3135,16 +3273,351 @@ fun FillerCardTwo() {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 20.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            verticalArrangement = Arrangement.SpaceBetween,
+            horizontalAlignment = Alignment.Start
         ) {
+            // Top section with title - matching FishSummaryCard style
             Text(
-                text = "",
-                fontSize = 16.sp,
+                "Fish Disease Guide",
                 color = Color.White,
-                fontWeight = FontWeight.Bold
+                fontSize = when {
+                    screenWidthDp < 360 -> 12.sp
+                    screenWidthDp < 400 -> 13.sp
+                    else -> 14.sp
+                },
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
             )
 
+
+            Text(
+                "Quick tips on spotting and preventing common fish diseases.",
+                color = Color.LightGray,
+                fontSize = if (screenWidthDp < 360) 8.sp else 10.sp,
+                lineHeight = 16.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            // Individual disease cards - centered with spacing, positioned higher
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.TopCenter
+            ) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp)
+                ) {
+                    items(diseases) { disease ->
+                        Card(
+                            modifier = Modifier
+                                .width(80.dp)
+                                .height(70.dp)
+                                .clickable {
+                                    selectedDisease = disease
+                                    showDiseaseModal = true
+                                },
+                            colors = CardDefaults.cardColors(
+                                containerColor = Color.White.copy(alpha = 0.2f)
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    text = disease.emoji,
+                                    fontSize = 18.sp
+                                )
+
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = disease.name,
+                                    fontSize = 11.sp,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Medium,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Disease Information Bottom Modal
+    if (showDiseaseModal && selectedDisease != null) {
+        val disease = selectedDisease!!
+        ModalBottomSheet(
+            onDismissRequest = { showDiseaseModal = false },
+            sheetState = rememberModalBottomSheetState(),
+            dragHandle = { BottomSheetDefaults.DragHandle() }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp)
+                    .padding(bottom = 32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Disease Header
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = disease.emoji,
+                        fontSize = 48.sp
+                    )
+
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text(
+                            text = disease.name,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = disease.scientificName,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontStyle = FontStyle.Italic
+                        )
+                    }
+                }
+
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+
+                val showFullImageDialog = remember { mutableStateOf(false) }
+
+// Disease image preview
+                Image(
+                    painter = painterResource(id = disease.imageRes),
+                    contentDescription = "${disease.name} image",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { showFullImageDialog.value = true },
+                    contentScale = ContentScale.Crop
+                )
+
+
+                if (showFullImageDialog.value) {
+                    Dialog(
+                        onDismissRequest = { showFullImageDialog.value = false },
+                        properties = DialogProperties(
+                            dismissOnClickOutside = true,
+                            usePlatformDefaultWidth = false
+                        )
+                    ) {
+                        // Fullscreen overlay that dismisses on outside click
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.05f)) // dim background (optional)
+                                .clickable(
+                                    indication = null,
+                                    interactionSource = remember { MutableInteractionSource() }
+                                ) {
+                                    showFullImageDialog.value = false // dismiss on outside click
+                                }
+                                .padding(horizontal = 25.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            var scale by remember { mutableStateOf(1f) }
+                            val maxScale = 5f
+                            val minScale = 1f
+
+                            val zoomModifier = Modifier
+                                .pointerInput(Unit) {
+                                    detectTransformGestures { _, _, zoomChange, _ ->
+                                        scale = (scale * zoomChange).coerceIn(minScale, maxScale)
+                                    }
+                                }
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onDoubleTap = {
+                                            scale = if (scale > 1f) 1f else 2f
+                                        }
+                                    )
+                                }
+
+                            // Prevent clicks on the image box from dismissing
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .wrapContentHeight()
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(Color.Black)
+                                    .then(zoomModifier)
+                                    .clickable(
+                                        indication = null,
+                                        interactionSource = remember { MutableInteractionSource() }
+                                    ) { /* block outside dismiss when image clicked */ },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Image(
+                                    painter = painterResource(id = disease.imageRes),
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .graphicsLayer(
+                                            scaleX = scale,
+                                            scaleY = scale
+                                        ),
+                                    contentScale = ContentScale.Crop
+                                )
+
+                                IconButton(
+                                    onClick = { showFullImageDialog.value = false },
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(12.dp)
+                                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Close",
+                                        tint = Color.White
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Disease Information
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Text(
+                            text = "Description",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = disease.description,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Symptoms
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Text(
+                            text = "🚨 Symptoms",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = disease.symptoms,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // Treatment
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Text(
+                            text = "💊 Treatment",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = disease.treatment,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Close Button
+                Button(
+                    onClick = { showDiseaseModal = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                    contentPadding = PaddingValues(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(42.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                brush = Brush.linearGradient(
+                                    colors = listOf(
+                                        Color(0xFF5DCCFC), // bright cyan
+                                        Color(0xFF007EF2)  // deep aqua blue
+                                    )
+                                ),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Close",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+            }
         }
     }
 }
@@ -3244,16 +3717,65 @@ fun FillerCardThree() {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 20.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            verticalArrangement = Arrangement.SpaceBetween,
+            horizontalAlignment = Alignment.Start
         ) {
-            Text(
-                text = "",
-                fontSize = 16.sp,
-                color = Color.White,
-                fontWeight = FontWeight.Bold
-            )
-
+            // Top section with title and status
+            Column(
+                horizontalAlignment = Alignment.Start
+            ) {
+                Text(
+                    text = "🐟 Fish Health Tips",
+                    fontSize = 18.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Daily Monitoring",
+                    fontSize = 14.sp,
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontWeight = FontWeight.Medium
+                )
+            }
+            
+            // Middle section with tips
+            Column(
+                horizontalAlignment = Alignment.Start
+            ) {
+                Text(
+                    text = "• Check water quality daily",
+                    fontSize = 12.sp,
+                    color = Color.White.copy(alpha = 0.8f)
+                )
+                Text(
+                    text = "• Monitor fish behavior",
+                    fontSize = 12.sp,
+                    color = Color.White.copy(alpha = 0.8f)
+                )
+                Text(
+                    text = "• Maintain proper feeding",
+                    fontSize = 12.sp,
+                    color = Color.White.copy(alpha = 0.8f)
+                )
+            }
+            
+            // Bottom section with action
+            Column(
+                horizontalAlignment = Alignment.Start
+            ) {
+                Text(
+                    text = "Scan Now",
+                    fontSize = 16.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "Tap to start monitoring",
+                    fontSize = 12.sp,
+                    color = Color.White.copy(alpha = 0.7f)
+                )
+            }
         }
     }
 }

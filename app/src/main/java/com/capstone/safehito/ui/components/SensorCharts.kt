@@ -127,7 +127,9 @@ fun SensorRangeChart(sensorLabel: String, value: Float) {
                     listOf(
                         Color(0xFFD32F2F), // Strongly acidic
                         Color(0xFFFFA000), // Slightly acidic
+                        Color(0xFF8BC34A),
                         Color(0xFF2E7D32), // Neutral
+                        Color(0xFF8BC34A),
                         Color(0xFFFFA000), // Slightly alkaline
                         Color(0xFFD32F2F)  // Alkaline
                     )
@@ -156,11 +158,11 @@ fun SensorRangeChart(sensorLabel: String, value: Float) {
                 maxValue = 10f,
                 gradient = Brush.horizontalGradient(
                     listOf(
-                        Color(0xFFD32F2F),  // Dangerously low
-                        Color(0xFFFFA000),  // Slightly low
-                        Color(0xFF2E7D32),  // Optimal
-                        Color(0xFFFFA000),  // Slightly high
-                        Color(0xFFD32F2F)   // Too high (rare)
+                        Color(0xFFD32F2F), // Critical
+                        Color(0xFFFF9800), // Low
+                        Color(0xFF8BC34A), // Sufficient
+                        Color(0xFF4CAF50), // Good
+                        Color(0xFF2E7D32)  // Excellent
                     )
                 ),
                 thresholds = listOf(0f, 3.5f, 5f, 6.5f, 10f),
@@ -189,6 +191,7 @@ fun SensorRangeChart(sensorLabel: String, value: Float) {
                     listOf(
 
                         Color(0xFF2E7D32),  // Clear ✅ center
+                        Color(0xFF8BC34A),
                         Color(0xFFFFA000),  // Slightly Murky
                         Color(0xFFD32F2F)   // Very Murky
                     )
@@ -219,7 +222,9 @@ fun SensorRangeChart(sensorLabel: String, value: Float) {
                     listOf(
                         Color(0xFFD32F2F), // Too Cold
                         Color(0xFFFFA000),
+                        Color(0xFF8BC34A),
                         Color(0xFF2E7D32), // Optimal
+                        Color(0xFF8BC34A),
                         Color(0xFFFFA000),
                         Color(0xFFD32F2F)  // Too Hot
                     )
@@ -245,16 +250,28 @@ fun SensorRangeChart(sensorLabel: String, value: Float) {
             GradientSensorChart(
                 currentValue = value,
                 minValue = 0f,
-                maxValue = 50f,
+                maxValue = 42f,
                 gradient = Brush.horizontalGradient(
                     listOf(
-                        Color(0xFFD32F2F), // Low
-                        Color(0xFF2E7D32)  // Sufficient
+                        Color(0xFFD32F2F), // Critical
+                        Color(0xFFFF9800), // Low
+                        Color(0xFF8BC34A), // Sufficient
+                        Color(0xFF4CAF50), // Good
+                        Color(0xFF2E7D32)  // Excellent
                     )
                 ),
-                thresholds = listOf(0f, 20f, 30f, 40f),
-                labelFormatter = { "%.0f".format(it) },
-                zoneLabels = listOf("Low", "Good")
+                thresholds = listOf(0f, 10f, 20f, 30f, 40f),
+                labelFormatter = {
+                    when (it) {
+                        0f -> "0"
+                        10f -> "10"
+                        20f -> "20"
+                        30f -> "30"
+                        40f -> ">40"
+                        else -> "%.0f".format(it)
+                    }
+                },
+                zoneLabels = listOf("Low", "Sufficient", "Excellent")
             )
         }
     }

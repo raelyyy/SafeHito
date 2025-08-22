@@ -74,15 +74,16 @@ suspend fun generateMedicalPDF(context: Context, record: com.capstone.safehito.u
     }
 
     val diagnosisDetails = when {
-        record.result.contains("cotton", true) -> "Saprolegnia parasitica – Cotton-like growth on skin or fins"
-        record.result.contains("reddish", true) -> "Fusarium solani – Reddish ulcers or skin wounds"
-        record.result.contains("whitepatch", true) -> "Candida albicans – Milky white smooth skin patches"
-        record.result.contains("ulcer", true) -> "Achlya americana – Open ulcers with fungal edge"
+        record.result.contains("cotton", true) -> "Saprolegnia spp. – Cotton-like fungal growth on skin or fins"
+        record.result.contains("reddish", true) -> "Bacterial infection – Reddish patches or skin lesions"
+        record.result.contains("whitepatch", true) -> "White Patch – White spot disease on skin"
+        record.result.contains("ulcer", true) -> "Bacterial ulcer – Open wounds with bacterial infection"
         record.result.contains("fungal", true) -> "Various fungal species – General fungal infection signs"
         record.result.contains("healthy", true) -> "No pathogens detected – Fish appear healthy"
         record.result.contains("no fish", true) -> "No fish detected – No visible specimen"
         else -> "Unknown – No further details"
     }
+
 
     var y = 130f
     listOf(

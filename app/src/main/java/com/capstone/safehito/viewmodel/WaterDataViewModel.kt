@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.database.*
+import com.capstone.safehito.data.AuditLogService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -12,6 +13,7 @@ class WaterDataViewModel : ViewModel() {
 
     private val dbRef: DatabaseReference =
         FirebaseDatabase.getInstance().getReference("waterData")
+    private val auditLogService = AuditLogService()
 
     private val _ph = MutableStateFlow("0.0")
     val ph: StateFlow<String> = _ph
@@ -49,13 +51,20 @@ class WaterDataViewModel : ViewModel() {
     private val _oxygenHistory = MutableStateFlow<List<Float>>(emptyList())
     val oxygenHistory: StateFlow<List<Float>> = _oxygenHistory
 
+    private val _waterLevelHistory = MutableStateFlow<List<Float>>(emptyList())
+    val waterLevelHistory: StateFlow<List<Float>> = _waterLevelHistory
+
+    private var waterDataListener: ValueEventListener? = null
 
     init {
         startListening()
     }
 
     private fun startListening() {
-        dbRef.addValueEventListener(object : ValueEventListener {
+        // Remove existing listener if any
+        waterDataListener?.let { dbRef.removeEventListener(it) }
+        
+        waterDataListener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val phVal = snapshot.child("ph").getValue(Double::class.java) ?: 0.0
                 val tempVal = snapshot.child("temperature").getValue(Double::class.java) ?: 0.0
@@ -74,6 +83,7 @@ class WaterDataViewModel : ViewModel() {
                     _temperatureHistory.emit((_temperatureHistory.value + tempVal.toFloat()).takeLast(20))
                     _turbidityHistory.emit((_turbidityHistory.value + turbidityVal.toFloat()).takeLast(20))
                     _oxygenHistory.emit((_oxygenHistory.value + oxygenVal.toFloat()).takeLast(20))
+                    _waterLevelHistory.emit((_waterLevelHistory.value + levelVal.toFloat()).takeLast(20))
 
                     evaluateWaterStatus(phVal, tempVal, turbidityVal, oxygenVal, levelVal)
                 }
@@ -83,7 +93,13 @@ class WaterDataViewModel : ViewModel() {
             override fun onCancelled(error: DatabaseError) {
                 Log.e("WaterViewModel", "Firebase error: ${error.message}")
             }
-        })
+        }
+        
+        dbRef.addValueEventListener(waterDataListener!!)
+    }
+
+    fun refresh() {
+        startListening()
     }
 
     private fun evaluateWaterStatus(
@@ -94,17 +110,52 @@ class WaterDataViewModel : ViewModel() {
         waterLevel: Double
     ) {
         val issues = mutableListOf<String>()
+        val oldStatus = _waterStatus.value
 
-        if (ph !in 6.5..8.5) issues.add("pH")
-        if (temp !in 24.0..30.0) issues.add("Temperature")
-        if (turbidity > 5.0) issues.add("Turbidity")
-        if (oxygen < 4.0) issues.add("Oxygen")
-        if (waterLevel < 18.0) issues.add("Water Level")
+        // Check pH levels
+        if (ph !in 6.5..8.5) {
+            issues.add("pH")
+            val severity = if (ph < 5.0 || ph > 10.0) AuditLogService.SEVERITY_CRITICAL else AuditLogService.SEVERITY_WARNING
+            auditLogService.logWaterParameterAlert("pH", ph.toString(), "6.5-8.5", severity)
+        }
+        
+        // Check temperature levels
+        if (temp !in 24.0..30.0) {
+            issues.add("Temperature")
+            val severity = if (temp < 20.0 || temp > 35.0) AuditLogService.SEVERITY_CRITICAL else AuditLogService.SEVERITY_WARNING
+            auditLogService.logWaterParameterAlert("Temperature", temp.toString(), "24.0-30.0°C", severity)
+        }
+        
+        // Check turbidity levels
+        if (turbidity > 125.0) {
+            issues.add("Turbidity")
+            val severity = if (turbidity > 100.0) AuditLogService.SEVERITY_WARNING else AuditLogService.SEVERITY_INFO
+            auditLogService.logWaterParameterAlert("Turbidity", turbidity.toString(), "≤125.0 NTU", severity)
+        }
+        
+        // Check oxygen levels
+        if (oxygen < 3.5) {
+            issues.add("Oxygen")
+            val severity = if (oxygen < 2.5) AuditLogService.SEVERITY_CRITICAL else AuditLogService.SEVERITY_WARNING
+            auditLogService.logWaterParameterAlert("Dissolved Oxygen", oxygen.toString(), "≥3.5 mg/L", severity)
+        }
+        
+        // Check water level
+        if (waterLevel < 20.0) {
+            issues.add("Water Level")
+            val severity = if (waterLevel < 10.0) AuditLogService.SEVERITY_CRITICAL else AuditLogService.SEVERITY_WARNING
+            auditLogService.logWaterParameterAlert("Water Level", waterLevel.toString(), "≥20.0 cm", severity)
+        }
 
         val newStatus = when {
             issues.isEmpty() -> "Normal"
             issues.size <= 2 -> "Caution"
             else -> "Warning"
+        }
+
+        // Log status change if it's different from previous status
+        if (oldStatus != newStatus) {
+            auditLogService.logWaterStatusChange(oldStatus, newStatus)
         }
 
         Log.d("WaterStatus", "New Status: $newStatus | Issues: $issues")

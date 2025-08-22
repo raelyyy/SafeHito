@@ -20,7 +20,11 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
 import com.google.firebase.messaging.FirebaseMessaging
+import android.widget.Toast
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,6 +50,59 @@ fun SettingsScreen(
         context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0"
     } catch (e: PackageManager.NameNotFoundException) {
         "1.0.0"
+    }
+
+    // Moved cooldown state and options here for global scope
+    val user = FirebaseAuth.getInstance().currentUser
+    // Check if user is admin or superadmin based on their role in Firebase
+    var isAdmin by remember { mutableStateOf(false) }
+    LaunchedEffect(user?.uid) {
+        if (user?.uid != null) {
+            val userRef = FirebaseDatabase.getInstance().getReference("users/${user.uid}")
+            userRef.child("role").addValueEventListener(object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val role = snapshot.getValue(String::class.java)
+                    isAdmin = role == "admin" || role == "superadmin"
+                }
+                override fun onCancelled(error: DatabaseError) {
+                    isAdmin = false
+                }
+            })
+        }
+    }
+    val cooldownOptions = listOf(
+        1 to "1 min",
+        30 to "30 min",
+        60 to "1 hr",
+        180 to "3 hrs",
+        360 to "6 hrs",
+        720 to "12 hrs",
+        1440 to "24 hrs"
+    )
+    var selectedCooldown by remember { mutableStateOf(720) }
+    var expanded by remember { mutableStateOf(false) }
+    var pendingCooldown by remember { mutableStateOf<Int?>(null) }
+    var showCooldownDialog by remember { mutableStateOf(false) }
+    var isCooldownLoading by remember { mutableStateOf(true) }
+    var isCooldownSaving by remember { mutableStateOf(false) }
+
+    // Always read from global/admin location (now with real-time updates)
+    DisposableEffect(Unit) {
+        val ref = FirebaseDatabase.getInstance().getReference("settings/saltBathCooldownMinutes")
+        val listener = object : com.google.firebase.database.ValueEventListener {
+            override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
+                val value = snapshot.getValue(Int::class.java)
+                if (value != null) {
+                    selectedCooldown = value
+                }
+                isCooldownLoading = false
+            }
+            override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
+                isCooldownLoading = false
+            }
+        }
+        ref.addValueEventListener(listener)
+        onDispose { ref.removeEventListener(listener) }
     }
 
     Scaffold(
@@ -93,31 +150,6 @@ fun SettingsScreen(
                 }
             }
 
-            val uid = FirebaseAuth.getInstance().currentUser?.uid
-            val cooldownOptions = listOf(
-                1 to "1 min",
-                30 to "30 min",
-                60 to "1 hr",
-                180 to "3 hrs",
-                360 to "6 hrs",
-                720 to "12 hrs",
-                1440 to "24 hrs"
-            )
-
-            var selectedCooldown by remember { mutableStateOf(720) }
-            var expanded by remember { mutableStateOf(false) }
-
-            LaunchedEffect(uid) {
-                uid?.let {
-                    FirebaseDatabase.getInstance()
-                        .getReference("users/$uid/settings/saltBathCooldownMinutes")
-                        .get()
-                        .addOnSuccessListener { snap ->
-                            selectedCooldown = snap.getValue(Int::class.java) ?: 720
-                        }
-                }
-            }
-
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -141,38 +173,46 @@ fun SettingsScreen(
                         modifier = Modifier.weight(1f)
                     )
 
-                    Box {
-                        TextButton(onClick = { expanded = true }) {
-                            Text(
-                                cooldownOptions.find { it.first == selectedCooldown }?.second ?: "",
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Icon(
-                                imageVector = Icons.Default.ArrowDropDown,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-
-                        DropdownMenu(
-                            expanded = expanded,
-                            onDismissRequest = { expanded = false }
-                        ) {
-                            cooldownOptions.forEach { (value, label) ->
-                                DropdownMenuItem(
-                                    text = { Text(label) },
-                                    onClick = {
-                                        selectedCooldown = value
-                                        expanded = false
-                                        uid?.let {
-                                            FirebaseDatabase.getInstance()
-                                                .getReference("users/$uid/settings/saltBathCooldownMinutes")
-                                                .setValue(value)
-                                        }
-                                    }
+                    if (isAdmin) {
+                        Box {
+                            TextButton(onClick = { if (!isCooldownLoading) expanded = true }, enabled = !isCooldownLoading) {
+                                if (isCooldownLoading) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                                Text(
+                                    cooldownOptions.find { it.first == selectedCooldown }?.second ?: "",
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDropDown,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
                                 )
                             }
+
+                            DropdownMenu(
+                                expanded = expanded,
+                                onDismissRequest = { expanded = false }
+                            ) {
+                                cooldownOptions.forEach { (value, label) ->
+                                    DropdownMenuItem(
+                                        text = { Text(label) },
+                                        onClick = {
+                                            pendingCooldown = value
+                                            expanded = false
+                                            showCooldownDialog = true
+                                        }
+                                    )
+                                }
+                            }
                         }
+                    } else {
+                        // Non-admin: just show the value
+                        Text(
+                            text = cooldownOptions.find { it.first == selectedCooldown }?.second ?: "",
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
             }
@@ -246,9 +286,48 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.align(Alignment.CenterHorizontally)
             )
+
+            // Place the dialog INSIDE the Column so all variables are in scope
+            if (showCooldownDialog && pendingCooldown != null) {
+                AlertDialog(
+                    onDismissRequest = { if (!isCooldownSaving) showCooldownDialog = false },
+                    title = { Text("Change Salt Bath Cooldown") },
+                    text = { Text("Are you sure you want to set the salt bath cooldown to " +
+                        (cooldownOptions.find { it.first == pendingCooldown }?.second ?: "") + "?") },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                isCooldownSaving = true
+                                FirebaseDatabase.getInstance()
+                                    .getReference("settings/saltBathCooldownMinutes")
+                                    .setValue(pendingCooldown!!)
+                                    .addOnSuccessListener {
+                                        isCooldownSaving = false
+                                        showCooldownDialog = false
+                                        // No need to set selectedCooldown here; listener will update it
+                                    }
+                                    .addOnFailureListener { e ->
+                                        isCooldownSaving = false
+                                        Toast.makeText(context, "Failed to save cooldown: ${e.message}", Toast.LENGTH_LONG).show()
+                                    }
+                            },
+                            enabled = !isCooldownSaving
+                        ) {
+                            if (isCooldownSaving) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            Text("Confirm")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { if (!isCooldownSaving) showCooldownDialog = false }, enabled = !isCooldownSaving) {
+                            Text("Cancel")
+                        }
+                    }
+                )
+            }
         }
-
-
 
     }
 

@@ -28,11 +28,22 @@ import com.capstone.safehito.ui.LoginScreen
 import com.capstone.safehito.ui.SignUpScreen
 import com.capstone.safehito.ui.theme.SafeHitoTheme
 import com.capstone.safehito.util.WaterStatusManager
+import com.capstone.safehito.util.PiStatusManager
 import com.capstone.safehito.util.rememberOfflineBannerState
 import com.google.accompanist.systemuicontroller.rememberSystemUiController
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.FirebaseDatabase
 
 class MainActivity : ComponentActivity() {
+
+    override fun onResume() {
+        super.onResume()
+        val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+        if (uid != null) {
+            val ref = com.google.firebase.database.FirebaseDatabase.getInstance().getReference("users/$uid/lastActive")
+            ref.setValue(System.currentTimeMillis())
+        }
+    }
 
     @RequiresApi(Build.VERSION_CODES.P)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -62,6 +73,10 @@ class MainActivity : ComponentActivity() {
             WaterStatusManager(applicationContext, userId).startMonitoring()
         }
 
+        // Initialize Pi Status Manager
+        val piStatusManager = PiStatusManager()
+        piStatusManager.startMonitoring()
+
         setContent {
             val systemDark = isSystemInDarkTheme()
             var isUserOverride by remember { mutableStateOf(false) }
@@ -85,8 +100,6 @@ class MainActivity : ComponentActivity() {
 
             SafeHitoTheme(darkTheme = isDarkMode) {
                 val navController = rememberNavController()
-                var isLoggedIn by remember { mutableStateOf(user != null) }
-                var showLogin by remember { mutableStateOf(true) }
                 val showOfflineBanner by rememberOfflineBannerState()
 
                 val backgroundColor = if (isDarkMode) Color.Black else Color.White
@@ -98,34 +111,18 @@ class MainActivity : ComponentActivity() {
                     color = backgroundColor
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
-                        when {
-                            isLoggedIn -> AppNavigation(
-                                navController = navController,
-                                isDarkMode = isDarkMode,
-                                onToggleTheme = {
-                                    isUserOverride = true
-                                    isDarkMode = !isDarkMode
-                                },
-                                resetOverride = {
-                                    isUserOverride = false
-                                    isDarkMode = systemDark
-                                }
-                            )
-                            showLogin -> LoginScreen(
-                                onLoginSuccess = {
-                                    isLoggedIn = true
-                                    showLogin = true
-                                },
-                                onNavigateToSignUp = { showLogin = false }
-                            )
-                            else -> SignUpScreen(
-                                onSignUpSuccess = {
-                                    isLoggedIn = true
-                                    showLogin = true
-                                },
-                                onNavigateToLogin = { showLogin = true }
-                            )
-                        }
+                        AppNavigation(
+                            navController = navController,
+                            isDarkMode = isDarkMode,
+                            onToggleTheme = {
+                                isUserOverride = true
+                                isDarkMode = !isDarkMode
+                            },
+                            resetOverride = {
+                                isUserOverride = false
+                                isDarkMode = systemDark
+                            }
+                        )
 
                         AnimatedVisibility(
                             visible = showOfflineBanner,

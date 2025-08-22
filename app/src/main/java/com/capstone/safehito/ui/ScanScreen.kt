@@ -69,6 +69,9 @@ import coil.compose.AsyncImage
 import com.capstone.safehito.R
 import com.capstone.safehito.viewmodel.NotificationViewModel
 import com.google.accompanist.systemuicontroller.rememberSystemUiController
+import com.capstone.safehito.util.PiStatusManager
+import com.capstone.safehito.ui.components.PiStatusIndicator
+import com.capstone.safehito.ui.components.PiStatusDialog
 import com.google.android.gms.common.config.GservicesValue.value
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.*
@@ -89,6 +92,11 @@ import java.util.*
 import kotlin.coroutines.EmptyCoroutineContext.get
 import retrofit2.http.Query
 import java.util.concurrent.TimeUnit
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+
 
 
 interface PiApi {
@@ -117,23 +125,10 @@ data class ScanResponse(
 
 
 
-fun observePiIp(onResult: (String?) -> Unit): ValueEventListener {
-    val dbRef = FirebaseDatabase.getInstance().getReference("raspberry_pi/ip")
-    val listener = object : ValueEventListener {
-        override fun onDataChange(snapshot: DataSnapshot) {
-            val ip = snapshot.getValue(String::class.java)
-            onResult(ip)
-        }
-        override fun onCancelled(error: DatabaseError) {
-            onResult(null)
-        }
-    }
-    dbRef.addValueEventListener(listener)
-    return listener
-}
 
 
-fun createRetrofit(ip: String): PiApi {
+
+fun createRetrofit(serverUrl: String): PiApi {
     val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -142,13 +137,17 @@ fun createRetrofit(ip: String): PiApi {
         .build()
 
     val retrofit = Retrofit.Builder()
-        .baseUrl("http://$ip:5000/")
+        .baseUrl(if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/") // ✅ use ngrok URL
         .client(client)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
 
     return retrofit.create(PiApi::class.java)
 }
+
+
+
+
 
 
 @Composable
@@ -239,9 +238,11 @@ fun ScanScreen(
     val uid = FirebaseAuth.getInstance().currentUser?.uid
     val db = FirebaseDatabase.getInstance()
     var hasUnread by remember { mutableStateOf(false) }
-    var piIp by remember { mutableStateOf<String?>(null) }
-
     var confidence by remember { mutableStateOf(0f) }
+    
+    // Pi Status Manager
+    val piStatusManager = remember { PiStatusManager() }
+    var showPiStatusDialog by remember { mutableStateOf(false) }
 
 
     val systemUiController = rememberSystemUiController()
@@ -252,16 +253,19 @@ fun ScanScreen(
         )
     }
 
+    // Start Pi Status monitoring
+    LaunchedEffect(Unit) {
+        piStatusManager.startMonitoring()
+    }
+    
+    // Clean up when component is destroyed
     DisposableEffect(Unit) {
-        val dbRef = FirebaseDatabase.getInstance().getReference("raspberry_pi/ip")
-        val listener = observePiIp { ip ->
-            piIp = ip
-        }
-
         onDispose {
-            dbRef.removeEventListener(listener)
+            piStatusManager.stopMonitoring()
         }
     }
+    
+
 
     LaunchedEffect(uid) {
         uid?.let {
@@ -301,6 +305,25 @@ fun ScanScreen(
     var maxZoom by remember { mutableFloatStateOf(1f) }
     var minZoom by remember { mutableFloatStateOf(1f) }
     var cameraInfo: CameraInfo? by remember { mutableStateOf(null) }
+
+    var serverUrl by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        val dbRef = FirebaseDatabase.getInstance()
+            .getReference("raspberry_pi/ngrok_url")
+
+        dbRef.addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val url = snapshot.getValue(String::class.java)
+                if (!url.isNullOrEmpty()) {
+                    serverUrl = url  // ✅ update state automatically
+                }
+            }
+            override fun onCancelled(error: DatabaseError) {
+                println("Firebase error: ${error.message}")
+            }
+        })
+    }
 
 
     DisposableEffect(Unit) {
@@ -354,7 +377,8 @@ fun ScanScreen(
 
             scanJob = coroutineScope.launch(Dispatchers.IO) {
                 try {
-                    if (piIp == null || uidBody == null) {
+                    val currentPiStatus = piStatusManager.piStatus.value
+                    if (currentPiStatus.ipAddress == null || uidBody == null) {
                         withContext(Dispatchers.Main) {
                             scanResult = "❌ Missing UID or Raspberry Pi IP."
                             isLoading = false
@@ -362,7 +386,7 @@ fun ScanScreen(
                         return@launch
                     }
 
-                    val api = createRetrofit(piIp!!)
+                    val api = createRetrofit(serverUrl)  // ✅ comes from Firebase listener
                     val response = api.scanPhoneImage(body, uidBody)
 
                     withContext(Dispatchers.Main) {
@@ -471,12 +495,12 @@ fun ScanScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(bottom = 25.dp) // Add space for floating navbar
+                .padding(bottom = 27.dp) // Add space for floating navbar
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 75.dp)
+                    .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 75.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(Color.Black),
                 contentAlignment = Alignment.Center
@@ -500,8 +524,7 @@ fun ScanScreen(
 
                     showLivePreview && usePiCamera -> {
                         Box(
-                            modifier = Modifier
-                                .fillMaxSize(),
+                            modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
                         ) {
                             AndroidView(
@@ -509,18 +532,27 @@ fun ScanScreen(
                                     WebView(ctx).apply {
                                         settings.javaScriptEnabled = true
                                         webViewClient = WebViewClient()
-                                        loadUrl("http://${piIp}:5000/live?key=$reloadKey")
-                                        rotation = 270f // ✅ Rotate the view 90 degrees clockwise
+
+                                        // ✅ Always send skip-warning header
+                                        val headers = mapOf("ngrok-skip-browser-warning" to "true")
+
+                                        if (serverUrl.isNotEmpty()) {
+                                            loadUrl("$serverUrl/live?key=$reloadKey", headers)
+                                        }
+
+                                        rotation = 270f // keep your rotation
                                     }
                                 },
                                 modifier = Modifier
-                                    .size(480.dp) // 🔄 Rotate means width/height become square for 640x480 preview
+                                    .size(480.dp)
                                     .graphicsLayer {
-                                        rotationZ = 90f // ✅ Also rotate via Compose layer to ensure it applies
+                                        rotationZ = 90f
                                     }
                             )
                         }
                     }
+
+
 
 
                     showLivePreview && !usePiCamera && cameraPermissionGranted.value && cameraActive -> {
@@ -547,13 +579,15 @@ fun ScanScreen(
                     }
                 }
 
-                if (piIp == null) {
-                    Text(
-                        text = "Fetching Raspberry Pi IP...",
-                        color = Color.Gray,
-                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp)
-                    )
-                }
+                // Pi Status Indicator (TOP LEFT)
+                PiStatusIndicator(
+                    piStatusManager = piStatusManager,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(16.dp),
+                    showDetailedInfo = true,
+                    onStatusClick = { showPiStatusDialog = true }
+                )
 
                 // Flash toggle (TOP RIGHT)
                 if (!usePiCamera) {
@@ -638,16 +672,23 @@ fun ScanScreen(
                         if (usePiCamera) {
                             scanJob = CoroutineScope(Dispatchers.IO).launch {
                                 try {
-                                    val api = piIp?.let { createRetrofit(it) }
-                                    if (api == null) {
+                                    if (serverUrl.isBlank()) {
                                         withContext(Dispatchers.Main) {
-                                            scanResult = "No Raspberry Pi IP found. Please check Firebase."
+                                            scanResult = "No Raspberry Pi URL found. Please check Firebase."
                                             cameraActive = false
                                             isLoading = false
                                         }
                                         return@launch
                                     }
 
+                                    // ✅ normalize URL
+                                    val fixedUrl = if (serverUrl.startsWith("http://") || serverUrl.startsWith("https://")) {
+                                        serverUrl
+                                    } else {
+                                        "http://$serverUrl"
+                                    }
+
+                                    val api = createRetrofit(fixedUrl)
                                     val response = withTimeoutOrNull(7000) { api.scanFromPi(uid ?: "admin") }
 
                                     withContext(Dispatchers.Main) {
@@ -656,7 +697,7 @@ fun ScanScreen(
                                             cameraActive = false
                                         } else {
                                             val responseBody = response.body()
-                                            if (response.isSuccessful && responseBody != null && responseBody.status == "success") {
+                                            if (response.isSuccessful && responseBody?.status == "success") {
                                                 imageUrl = responseBody.image_url
                                                 scanResult = responseBody.result ?: "No result"
                                                 showLivePreview = false
@@ -679,6 +720,7 @@ fun ScanScreen(
                                 }
                             }
                         } else {
+                            // phone capture branch — also use fixedUrl instead of ipAddress
                             val file = File(context.cacheDir, "capture_${UUID.randomUUID()}.jpg")
                             val outputOptions = ImageCapture.OutputFileOptions.Builder(file).build()
 
@@ -701,21 +743,22 @@ fun ScanScreen(
 
                                         scanJob = CoroutineScope(Dispatchers.IO).launch {
                                             try {
-                                                if (piIp == null || uidBody == null) {
+                                                if (serverUrl.isBlank() || uidBody == null) {
                                                     withContext(Dispatchers.Main) {
-                                                        scanResult = "Missing UID or Pi IP"
+                                                        scanResult = "Missing UID or Pi URL"
                                                         cameraActive = false
                                                         isLoading = false
                                                     }
                                                     return@launch
                                                 }
 
-                                                val api = createRetrofit(piIp!!)
+                                                val fixedUrl = if (serverUrl.startsWith("http")) serverUrl else "http://$serverUrl"
+                                                val api = createRetrofit(fixedUrl)
                                                 val response = api.scanPhoneImage(body, uidBody)
 
                                                 withContext(Dispatchers.Main) {
                                                     val responseBody = response.body()
-                                                    if (response.isSuccessful && responseBody != null && responseBody.status == "success") {
+                                                    if (response.isSuccessful && responseBody?.status == "success") {
                                                         imageUrl = responseBody.image_url
                                                         scanResult = responseBody.result ?: "No result"
                                                         showLivePreview = false
@@ -908,6 +951,14 @@ fun ScanScreen(
 
 
 
+        }
+        
+        // Pi Status Dialog
+        if (showPiStatusDialog) {
+            PiStatusDialog(
+                piStatusManager = piStatusManager,
+                onDismiss = { showPiStatusDialog = false }
+            )
         }
     }
 }

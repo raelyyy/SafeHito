@@ -8,6 +8,9 @@ import android.net.NetworkRequest
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.concurrent.TimeUnit
 
 /**
  * Observe real-time network status.
@@ -73,4 +76,31 @@ fun rememberOfflineBannerState(): State<Boolean> {
     }
 
     return derivedStateOf { showBanner }
+}
+
+fun normalizeUrl(url: String?): String? {
+    if (url.isNullOrBlank()) return null
+    return if (url.startsWith("http://") || url.startsWith("https://")) {
+        url
+    } else {
+        "http://$url"   // add scheme if missing (LAN IP usually missing it)
+    }
+}
+
+suspend fun isReachable(baseUrl: String): Boolean {
+    return try {
+        val client = OkHttpClient.Builder()
+            .connectTimeout(2, TimeUnit.SECONDS)
+            .readTimeout(2, TimeUnit.SECONDS)
+            .build()
+
+        val request = Request.Builder()
+            .url("$baseUrl/health")   // ✅ Pi has /health endpoint
+            .build()
+
+        val response = client.newCall(request).execute()
+        response.isSuccessful
+    } catch (e: Exception) {
+        false
+    }
 }

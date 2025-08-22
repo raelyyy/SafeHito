@@ -208,6 +208,18 @@ class NotificationViewModel(private val uid: String) : ViewModel() {
             }
     }
 
+    fun loadNotifications() {
+        // Force refresh by removing and re-adding the listener
+        if (listenerAdded) {
+            notifRef.removeEventListener(object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {}
+                override fun onCancelled(error: DatabaseError) {}
+            })
+            listenerAdded = false
+        }
+        listenToNotifications()
+    }
+
     // Time formatting helpers
     fun Long.toRelativeTime(): String {
         return DateUtils.getRelativeTimeSpanString(

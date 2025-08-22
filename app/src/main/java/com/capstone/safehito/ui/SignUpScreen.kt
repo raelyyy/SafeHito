@@ -2,10 +2,12 @@ package com.capstone.safehito.ui
 
 import android.widget.Toast
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -15,7 +17,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
@@ -24,6 +32,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextAlign
 import com.capstone.safehito.R
+import com.capstone.safehito.ui.components.TermsOfServiceModal
+import com.capstone.safehito.ui.components.PrivacyPolicyModal
 import com.google.accompanist.systemuicontroller.rememberSystemUiController
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
@@ -39,6 +49,8 @@ fun SignUpScreen(
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var showTermsModal by remember { mutableStateOf(false) }
+    var showPrivacyModal by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
@@ -67,27 +79,67 @@ fun SignUpScreen(
                 ) { focusManager.clearFocus() },
             contentAlignment = Alignment.Center
         ) {
-            Card(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .wrapContentHeight(),
-                shape = RoundedCornerShape(24.dp),
-                elevation = CardDefaults.elevatedCardElevation(4.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    .wrapContentHeight()
+                    .shadow(
+                        elevation = 10.dp,
+                        shape = RoundedCornerShape(24.dp),
+                        ambientColor = Color.Black.copy(alpha = 0.3f),
+                        spotColor = Color.Black.copy(alpha = 1f)
+                    )
+                    .background(
+                        Brush.linearGradient(
+                            colors = if (isDarkTheme) {
+                                listOf(
+                                    Color(0xFF2A2A2A),  // Slightly lighter dark gray
+                                    Color(0xFF1A1A1A)   // Dark gray
+                                )
+                            } else {
+                                listOf(
+                                    Color(0xFFFFFFFF),   // Slightly darker light gray
+                                    Color(0xFFF1F1F1)  // Light gray
+                                )
+                            },
+                            start = Offset(0f, 0f),
+                            end = Offset.Infinite
+                        ),
+                        RoundedCornerShape(24.dp)
+                    )
+                    .clip(RoundedCornerShape(24.dp))
+                    .padding(1.dp)
             ) {
+                Card(
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                    elevation = CardDefaults.cardElevation(0.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.Transparent)
+                ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.padding(24.dp)
                 ) {
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    Image(
-                        painter = painterResource(id = R.drawable.logo),
-                        contentDescription = "App Logo",
+                    Box(
                         modifier = Modifier
                             .size(80.dp)
-                            .padding(bottom = 12.dp)
-                    )
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.safehito_logoo),
+                            contentDescription = "App Logo",
+                            modifier = Modifier
+                                .scale(1.3f)
+                        )
+                    }
+
+                    Spacer(Modifier.height(18.dp))
 
                     Text("Create Account", style = MaterialTheme.typography.headlineSmall)
                     Text(
@@ -179,11 +231,19 @@ fun SignUpScreen(
                         },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(50.dp),
+                            .height(50.dp)
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(Color(0xFF5DCCFC), Color(0xFF007EF2)),
+                                    start = Offset(0f, 0f),
+                                    end = Offset.Infinite
+                                ),
+                                shape = RoundedCornerShape(12.dp)
+                            ),
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5DCCFC))
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent)
                     ) {
-                        Text("Sign Up", style = MaterialTheme.typography.labelLarge)
+                        Text("Sign Up", style = MaterialTheme.typography.labelLarge, color = Color.White)
                     }
 
                     errorMessage?.let {
@@ -193,25 +253,90 @@ fun SignUpScreen(
 
                     Spacer(modifier = Modifier.height(24.dp))
 
-                    TextButton(onClick = onNavigateToLogin) {
-                        Text("Already have an account? Log in")
+                    TextButton(
+                        onClick = onNavigateToLogin,
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = if (isDarkTheme) MaterialTheme.colorScheme.primary else Color(0xFF03A9F4)
+                        )
+                    ) {
+                        Text(
+                            "Already have an account? Log in",
+                            color = if (isDarkTheme) MaterialTheme.colorScheme.primary else Color(0xFF03A9F4)
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    Text(
-                        "By signing up, you agree to our Terms of Service and Privacy Policy.",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        lineHeight = 16.sp,
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    )
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = "By logging in, you agree to our ",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                lineHeight = 16.sp
+                            )
+                            Text(
+                                text = "Terms of Service",
+                                fontSize = 11.sp,
+                                color = if (isDarkTheme) MaterialTheme.colorScheme.primary else Color(0xFF03A9F4),
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                                lineHeight = 16.sp,
+                                modifier = Modifier
+                                    .clickable { showTermsModal = true }
+                                    .padding(horizontal = 1.dp)
+                            )
+
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = "and ",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                lineHeight = 16.sp
+                            )
+                            Text(
+                                text = "Privacy Policy",
+                                fontSize = 11.sp,
+                                color = if (isDarkTheme) MaterialTheme.colorScheme.primary else Color(
+                                    0xFF03A9F4
+                                ),
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 16.sp,
+                                modifier = Modifier
+                                    .clickable { showPrivacyModal = true }
+                                    .padding(horizontal = 1.dp)
+                            )
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(8.dp))
                 }
+                }
             }
         }
+        
+        // Terms of Service Modal
+        TermsOfServiceModal(
+            isVisible = showTermsModal,
+            onDismiss = { showTermsModal = false }
+        )
+        
+        // Privacy Policy Modal
+        PrivacyPolicyModal(
+            isVisible = showPrivacyModal,
+            onDismiss = { showPrivacyModal = false }
+        )
     }
 }
 
@@ -238,9 +363,13 @@ private fun handleSignUp(
                     if (task.isSuccessful) {
                         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: ""
                         val user = mapOf(
+                            "id" to uid,
                             "fullName" to fullName,
                             "email" to email,
-                            "phone" to contactNumber
+                            "role" to "user",
+                            "contactNumber" to contactNumber,
+                            "profilePictureUrl" to "",
+                            "profileImageBase64" to ""
                         )
                         FirebaseDatabase.getInstance()
                             .getReference("users")

@@ -86,6 +86,10 @@ import okhttp3.Request
 import okhttp3.Response
 import java.io.IOException
 import java.text.SimpleDateFormat
+import android.util.Log
+import com.google.accompanist.swiperefresh.SwipeRefresh
+import com.google.accompanist.swiperefresh.rememberSwipeRefreshState
+import com.google.accompanist.swiperefresh.SwipeRefreshIndicator
 
 
 data class Record(
@@ -124,19 +128,19 @@ fun ScanCard(record: Record, recordKey: String, darkTheme: Boolean) {
         record.result.contains("reddish", ignoreCase = true) -> DiagnosisStyle(
             bgColor = if (darkTheme) Color(0xFF424242) else Color(0xFFF5F5F5),
             textColor = if (darkTheme) Color(0xFFFF8A80) else Color(0xFFD32F2F),
-            statusText = "Infected – Fusariosis",
+            statusText = "Infected – Bacterial Infection",
             dotColor = Color.Red
         )
         record.result.contains("whitepatch", ignoreCase = true) -> DiagnosisStyle(
             bgColor = if (darkTheme) Color(0xFF424242) else Color(0xFFF5F5F5),
             textColor = if (darkTheme) Color(0xFFFF8A80) else Color(0xFFD32F2F),
-            statusText = "Infected – Candidiasis",
+            statusText = "Infected – White Spot Disease",
             dotColor = Color.Red
         )
         record.result.contains("ulcer", ignoreCase = true) -> DiagnosisStyle(
             bgColor = if (darkTheme) Color(0xFF424242) else Color(0xFFF5F5F5),
             textColor = if (darkTheme) Color(0xFFFF8A80) else Color(0xFFD32F2F),
-            statusText = "Infected – Achlyosis",
+            statusText = "Infected – Bacterial Ulcer",
             dotColor = Color.Red
         )
         record.result.contains("Fungal", ignoreCase = true) -> DiagnosisStyle(
@@ -173,20 +177,20 @@ fun ScanCard(record: Record, recordKey: String, darkTheme: Boolean) {
 
     val diagnosisDetails = when {
         record.result.contains("cotton", ignoreCase = true) -> DiagnosisDetails(
-            scientificName = "Saprolegnia parasitica",
+            scientificName = "Saprolegnia spp.",
             shortDescription = "Cotton-like growth on skin or fins"
         )
         record.result.contains("reddish", ignoreCase = true) -> DiagnosisDetails(
-            scientificName = "Fusarium solani",
-            shortDescription = "Reddish ulcers or skin wounds"
+            scientificName = "Bacterial infection",
+            shortDescription = "Reddish patches or skin lesions"
         )
         record.result.contains("whitepatch", ignoreCase = true) -> DiagnosisDetails(
-            scientificName = "Candida albicans",
-            shortDescription = "Milky white smooth skin patches"
+            scientificName = "White Patch",
+            shortDescription = "White spot disease on skin"
         )
         record.result.contains("ulcer", ignoreCase = true) -> DiagnosisDetails(
-            scientificName = "Achlya americana",
-            shortDescription = "Open ulcers with fungal edge"
+            scientificName = "Bacterial ulcer",
+            shortDescription = "Open wounds with bacterial infection"
         )
         record.result.contains("fungal", ignoreCase = true) -> DiagnosisDetails(
             scientificName = "Various fungal species",
@@ -469,7 +473,24 @@ fun ScanCard(record: Record, recordKey: String, darkTheme: Boolean) {
                 )
 
 
-                if (isInfected) {
+                val user = FirebaseAuth.getInstance().currentUser
+                // Check if user is admin or superadmin based on their role in Firebase
+                var isAdmin by remember { mutableStateOf(false) }
+                LaunchedEffect(user?.uid) {
+                    if (user?.uid != null) {
+                        val userRef = FirebaseDatabase.getInstance().getReference("users/${user.uid}")
+                        userRef.child("role").addValueEventListener(object : ValueEventListener {
+                            override fun onDataChange(snapshot: DataSnapshot) {
+                                val role = snapshot.getValue(String::class.java)
+                                isAdmin = role == "admin" || role == "superadmin"
+                            }
+                            override fun onCancelled(error: DatabaseError) {
+                                isAdmin = false
+                            }
+                        })
+                    }
+                }
+                if (isInfected && (user != null)) { // Allow both users and admins
                     Spacer(modifier = Modifier.height(8.dp))
 
                     val gradientBrush = Brush.linearGradient(
@@ -478,42 +499,42 @@ fun ScanCard(record: Record, recordKey: String, darkTheme: Boolean) {
                         end = Offset.Infinite
                     )
 
-                    val uid = FirebaseAuth.getInstance().currentUser?.uid
                     var cooldownMinutes by remember { mutableStateOf(720L) }
                     var lastActivationTimestamp by remember { mutableStateOf(0L) }
                     var isCooldownActive by remember { mutableStateOf(false) }
                     var remainingMillis by remember { mutableStateOf(0L) }
 
                     // Firebase fetch
-                    LaunchedEffect(uid) {
-                        uid?.let {
-                            val dbRef = FirebaseDatabase.getInstance().getReference("users/$uid")
+                    LaunchedEffect(Unit) {
+                        // Always read from global/admin location
+                        val dbRef = FirebaseDatabase.getInstance().getReference("settings")
+                        dbRef.child("saltBathCooldownMinutes")
+                            .addValueEventListener(object : ValueEventListener {
+                                override fun onDataChange(snapshot: DataSnapshot) {
+                                    cooldownMinutes = snapshot.getValue(Long::class.java) ?: 720L
 
-                            dbRef.child("settings/saltBathCooldownMinutes")
-                                .addValueEventListener(object : ValueEventListener {
-                                    override fun onDataChange(snapshot: DataSnapshot) {
-                                        cooldownMinutes = snapshot.getValue(Long::class.java) ?: 720L
+                                    // Recalculate cooldown immediately
+                                    val now = System.currentTimeMillis()
+                                    val cooldownMillis = cooldownMinutes * 60 * 1000
+                                    val passed = now - lastActivationTimestamp
+                                    val remaining = cooldownMillis - passed
 
-                                        // Recalculate cooldown immediately
-                                        val now = System.currentTimeMillis()
-                                        val cooldownMillis = cooldownMinutes * 60 * 1000
-                                        val passed = now - lastActivationTimestamp
-                                        val remaining = cooldownMillis - passed
-
-                                        if (remaining > 0) {
-                                            isCooldownActive = true
-                                            remainingMillis = remaining
-                                        } else {
-                                            isCooldownActive = false
-                                            remainingMillis = 0L
-                                        }
+                                    if (remaining > 0) {
+                                        isCooldownActive = true
+                                        remainingMillis = remaining
+                                    } else {
+                                        isCooldownActive = false
+                                        remainingMillis = 0L
                                     }
+                                }
 
-                                    override fun onCancelled(error: DatabaseError) {}
-                                })
+                                override fun onCancelled(error: DatabaseError) {}
+                            })
 
-
-                            dbRef.child("saltbath_history").orderByChild("timestamp").limitToLast(1)
+                        val userUid = user?.uid
+                        if (userUid != null) {
+                            val userDbRef = FirebaseDatabase.getInstance().getReference("users/$userUid")
+                            userDbRef.child("saltbath_history").orderByChild("timestamp").limitToLast(1)
                                 .addListenerForSingleValueEvent(object : ValueEventListener {
                                     override fun onDataChange(snapshot: DataSnapshot) {
                                         val lastEntry = snapshot.children.firstOrNull()
@@ -707,7 +728,7 @@ fun ScanCard(record: Record, recordKey: String, darkTheme: Boolean) {
                                                         )
                                                         historyRef.setValue(historyData)
 
-                                                        // Create notification
+                                                        // Create notification for the user
                                                         val notifRef = database.getReference("notifications/$uid").push()
                                                         val notifData = mapOf(
                                                             "id" to notifRef.key,
@@ -716,6 +737,19 @@ fun ScanCard(record: Record, recordKey: String, darkTheme: Boolean) {
                                                             "read" to false
                                                         )
                                                         notifRef.setValue(notifData)
+
+                                                        // Create global notification for all users
+                                                        val globalNotifRef = database.getReference("notifications/global").push()
+                                                        val userName = (context as? Activity)?.let { act ->
+                                                            FirebaseAuth.getInstance().currentUser?.email ?: "Someone"
+                                                        } ?: "Someone"
+                                                        val globalNotifData = mapOf(
+                                                            "id" to globalNotifRef.key,
+                                                            "message" to "🌊 Salt bath was activated by $userName.",
+                                                            "time" to System.currentTimeMillis(),
+                                                            "read" to false
+                                                        )
+                                                        globalNotifRef.setValue(globalNotifData)
                                                     }
                                                 } else {
                                                     Toast.makeText(
@@ -815,7 +849,11 @@ fun ScanCard(record: Record, recordKey: String, darkTheme: Boolean) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(24.dp),
+                    .padding(horizontal = 24.dp) // Add horizontal padding to sides
+                    .clickable(
+                        // This clickable is for the background, so clicking outside the image closes the dialog
+                        onClick = { showFullImageDialog.value = false }
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 var scale by remember { mutableStateOf(1f) }
@@ -839,6 +877,7 @@ fun ScanCard(record: Record, recordKey: String, darkTheme: Boolean) {
                     modifier = Modifier
                         .wrapContentSize()
                         .then(zoomModifier)
+                        .clickable(enabled = false) {} // Prevents propagation to the background
                 ) {
                     AsyncImage(
                         model = record.image_url,
@@ -892,6 +931,40 @@ fun RecordsScreen(
     var records by remember { mutableStateOf(mapOf<String, Record>()) }
 
     val db = FirebaseDatabase.getInstance()
+
+    fun refreshRecordsData() {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        db.getReference("users/$uid/scans").addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val map = snapshot.children.associate { snap ->
+                    val status = snap.child("status").getValue(String::class.java) ?: ""
+                    val type = snap.child("type").getValue(String::class.java) ?: "-"
+                    val confidence =
+                        snap.child("confidence").getValue(Double::class.java)?.toFloat() ?: 0f
+                    val timestamp = snap.child("timestamp").getValue(Long::class.java) ?: 0L
+                    val image = snap.child("image").getValue(String::class.java) ?: ""
+
+                    val result = when {
+                        status.equals("Healthy", true) -> "Healthy"
+                        status.equals("No Fish", true) -> "No Fish"
+                        status.equals("Infected", true) -> "Fungal - $type"
+                        status.equals("Error", true) -> "Error"
+                        else -> "Unknown"
+                    }
+
+                    snap.key!! to Record(
+                        image_url = image,
+                        result = result,
+                        confidence = confidence,
+                        timestamp = timestamp
+                    )
+                }
+                records = map.toList().sortedByDescending { it.second.timestamp }.toMap()
+            }
+
+            override fun onCancelled(error: DatabaseError) {}
+        })
+    }
 
     SideEffect {
         systemUiController.setSystemBarsColor(
@@ -1016,244 +1089,293 @@ fun RecordsScreen(
             )
         }*/
     ) { innerPadding ->
+        var isRefreshing by remember { mutableStateOf(false) }
+        val swipeRefreshState = rememberSwipeRefreshState(isRefreshing)
+        val coroutineScope = rememberCoroutineScope()
 
-        Box(
+        SwipeRefresh(
+            state = swipeRefreshState,
+            onRefresh = {
+                isRefreshing = true
+                coroutineScope.launch {
+                    try {
+                        // Refresh records data
+                        refreshRecordsData()
+                        // Refresh notification status
+                        db.getReference("notifications/$uid").addValueEventListener(object : ValueEventListener {
+                            override fun onDataChange(snapshot: DataSnapshot) {
+                                hasUnread = snapshot.children.any {
+                                    it.child("read").getValue(Boolean::class.java) == false
+                                }
+                            }
+                            override fun onCancelled(error: DatabaseError) {}
+                        })
+                        // Delay to show refresh indicator
+                        delay(1000)
+                    } catch (e: Exception) {
+                        Log.e("RecordsRefresh", "Error during refresh: ${e.message}")
+                    } finally {
+                        isRefreshing = false
+                    }
+                }
+            },
+            indicator = { state, trigger ->
+                SwipeRefreshIndicator(
+                    state = state,
+                    refreshTriggerDistance = trigger,
+                    backgroundColor = if (darkTheme) Color(0xFF2C2C2C) else Color.White,
+                    contentColor = Color(0xFF5DCCFC), // Your app's primary blue color
+                    scale = true,
+                    arrowEnabled = true,
+                )
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+            ) {
 
 
-            Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
 
-            if (records.isEmpty()) {
-                Column(
-                    modifier = Modifier.align(Alignment.Center),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Inbox,
-                        contentDescription = "No Records Icon",
-                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-                        modifier = Modifier.size(120.dp)
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "No scan records found.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                    )
-                }
-            } else {
-                val listState = rememberLazyListState()
-                val scope = rememberCoroutineScope()
-                val showScrollToTop by remember {
-                    derivedStateOf { listState.firstVisibleItemIndex > 0 }
-                }
-
-                val filterOptions = listOf("All", "Healthy", "Infected", "No Fish", "Unknown")
-                val sortOptions = listOf("Newest", "Oldest", "Confidence")
-
-                var selectedFilter by remember { mutableStateOf("All") }
-                var selectedSort by remember { mutableStateOf("Newest") }
-
-                var filterExpanded by remember { mutableStateOf(false) }
-                var sortExpanded by remember { mutableStateOf(false) }
-
-                val filteredRecords = records
-                    .filter { (_, record) ->
-                        when (selectedFilter) {
-                            "All" -> true
-                            "Healthy" -> record.result.contains("Healthy", ignoreCase = true)
-                            "Infected" -> listOf(
-                                "Fungal",
-                                "cotton",
-                                "ulcer",
-                                "whitepatch",
-                                "reddish"
-                            )
-                                .any { keyword ->
-                                    record.result.contains(
-                                        keyword,
-                                        ignoreCase = true
-                                    )
-                                }
-
-                            "No Fish" -> record.result.contains("No Fish", ignoreCase = true)
-                            "Unknown" -> record.result.contains("Unknown", ignoreCase = true)
-                            else -> true
-                        }
-                    }
-                    .let {
-                        when (selectedSort) {
-                            "Newest" -> it.toList().sortedByDescending { it.second.timestamp }
-                            "Oldest" -> it.toList().sortedBy { it.second.timestamp }
-                            "Confidence" -> it.toList().sortedByDescending { it.second.confidence }
-                            else -> it.toList()
-                        }
-                    }
-
-                Box(modifier = Modifier.fillMaxSize()) {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                        contentPadding = PaddingValues(bottom = 20.dp)
+                if (records.isEmpty()) {
+                    Column(
+                        modifier = Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        stickyHeader {
-                            Surface(
-                                tonalElevation = 4.dp,
-                                color = MaterialTheme.colorScheme.background
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 8.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "${filteredRecords.size} Records",
-                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Box(modifier = Modifier.zIndex(1f)) {
-                                            TextButton(
-                                                onClick = { filterExpanded = true },
-                                                shape = RoundedCornerShape(50),
-                                                colors = ButtonDefaults.textButtonColors(
-                                                    containerColor = if (darkTheme) Color(0xFF2C2C2C) else Color(
-                                                        0xFFEFEFEF
-                                                    ),
-                                                    contentColor = MaterialTheme.colorScheme.onSurface
-                                                )
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.Tune,
-                                                    contentDescription = "Filter",
-                                                    tint = MaterialTheme.colorScheme.primary
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text(
-                                                    text = if (selectedFilter == "Infected") "🚨 $selectedFilter" else selectedFilter,
-                                                    style = MaterialTheme.typography.labelLarge
-                                                )
-                                            }
-
-                                            DropdownMenu(
-                                                expanded = filterExpanded,
-                                                onDismissRequest = { filterExpanded = false },
-                                                modifier = Modifier.background(MaterialTheme.colorScheme.surface)
-                                            ) {
-                                                filterOptions.forEach { option ->
-                                                    DropdownMenuItem(
-                                                        text = { Text(option) },
-                                                        onClick = {
-                                                            selectedFilter = option
-                                                            filterExpanded = false
-                                                        }
-                                                    )
-                                                }
-                                            }
-                                        }
-
-                                        Spacer(modifier = Modifier.width(8.dp))
-
-                                        Box(modifier = Modifier.zIndex(0f)) {
-                                            TextButton(
-                                                onClick = { sortExpanded = true },
-                                                shape = RoundedCornerShape(50),
-                                                colors = ButtonDefaults.textButtonColors(
-                                                    containerColor = if (darkTheme) Color(0xFF2C2C2C) else Color(
-                                                        0xFFEFEFEF
-                                                    ),
-                                                    contentColor = MaterialTheme.colorScheme.onSurface
-                                                )
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.SwapVert,
-                                                    contentDescription = "Sort",
-                                                    tint = MaterialTheme.colorScheme.primary
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text(
-                                                    text = selectedSort,
-                                                    style = MaterialTheme.typography.labelLarge
-                                                )
-                                            }
-
-                                            DropdownMenu(
-                                                expanded = sortExpanded,
-                                                onDismissRequest = { sortExpanded = false },
-                                                modifier = Modifier.background(MaterialTheme.colorScheme.surface)
-                                            ) {
-                                                sortOptions.forEach { option ->
-                                                    DropdownMenuItem(
-                                                        text = { Text(option) },
-                                                        onClick = {
-                                                            selectedSort = option
-                                                            sortExpanded = false
-                                                        }
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        items(filteredRecords.size) { index ->
-                            val (key, record) = filteredRecords[index]
-                            ScanCard(record = record, recordKey = key, darkTheme = darkTheme)
-                        }
-
-                        item { Spacer(modifier = Modifier.height(70.dp)) }
+                        Icon(
+                            imageVector = Icons.Default.Inbox,
+                            contentDescription = "No Records Icon",
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                            modifier = Modifier.size(120.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "No scan records found.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                        )
+                    }
+                } else {
+                    val listState = rememberLazyListState()
+                    val scope = rememberCoroutineScope()
+                    val showScrollToTop by remember {
+                        derivedStateOf { listState.firstVisibleItemIndex > 0 }
                     }
 
+                    val filterOptions = listOf("All", "Healthy", "Infected", "No Fish", "Unknown")
+                    val sortOptions = listOf("Newest", "Oldest", "Confidence")
 
+                    var selectedFilter by remember { mutableStateOf("All") }
+                    var selectedSort by remember { mutableStateOf("Newest") }
 
+                    var filterExpanded by remember { mutableStateOf(false) }
+                    var sortExpanded by remember { mutableStateOf(false) }
 
-
-                    AnimatedVisibility(
-                        visible = showScrollToTop,
-                        enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
-                        exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 45.dp, bottom = 120.dp)
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            shadowElevation = 6.dp,
-                            color = MaterialTheme.colorScheme.surface,
-                            modifier = Modifier
-                                .size(56.dp)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    scope.launch {
-                                        listState.scrollToItem(0)
-
-                                    }
-                                }
-
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.KeyboardArrowUp,
-                                    contentDescription = "Scroll to top",
-                                    tint = MaterialTheme.colorScheme.primary
+                    val filteredRecords = records
+                        .filter { (_, record) ->
+                            when (selectedFilter) {
+                                "All" -> true
+                                "Healthy" -> record.result.contains("Healthy", ignoreCase = true)
+                                "Infected" -> listOf(
+                                    "Fungal",
+                                    "cotton",
+                                    "ulcer",
+                                    "whitepatch",
+                                    "reddish"
                                 )
+                                    .any { keyword ->
+                                        record.result.contains(
+                                            keyword,
+                                            ignoreCase = true
+                                        )
+                                    }
+
+                                "No Fish" -> record.result.contains("No Fish", ignoreCase = true)
+                                "Unknown" -> record.result.contains("Unknown", ignoreCase = true)
+                                else -> true
                             }
                         }
-                    }
+                        .let {
+                            when (selectedSort) {
+                                "Newest" -> it.toList().sortedByDescending { it.second.timestamp }
+                                "Oldest" -> it.toList().sortedBy { it.second.timestamp }
+                                "Confidence" -> it.toList().sortedByDescending { it.second.confidence }
+                                else -> it.toList()
+                            }
+                        }
 
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            contentPadding = PaddingValues(bottom = 20.dp)
+                        ) {
+                            stickyHeader {
+                                Surface(
+                                    tonalElevation = 4.dp,
+                                    color = MaterialTheme.colorScheme.background
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "${filteredRecords.size} Records",
+                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(modifier = Modifier.zIndex(1f)) {
+                                                TextButton(
+                                                    onClick = { filterExpanded = true },
+                                                    shape = RoundedCornerShape(50),
+                                                    colors = ButtonDefaults.textButtonColors(
+                                                        containerColor = if (darkTheme) Color(0xFF2C2C2C) else Color(
+                                                            0xFFEFEFEF
+                                                        ),
+                                                        contentColor = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Tune,
+                                                        contentDescription = "Filter",
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text(
+                                                        text = if (selectedFilter == "Infected") "🚨 $selectedFilter" else selectedFilter,
+                                                        style = MaterialTheme.typography.labelLarge
+                                                    )
+                                                }
+
+                                                DropdownMenu(
+                                                    expanded = filterExpanded,
+                                                    onDismissRequest = { filterExpanded = false },
+                                                    modifier = Modifier.background(MaterialTheme.colorScheme.surface)
+                                                ) {
+                                                    filterOptions.forEach { option ->
+                                                        DropdownMenuItem(
+                                                            text = { Text(option) },
+                                                            onClick = {
+                                                                selectedFilter = option
+                                                                filterExpanded = false
+                                                            }
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.width(8.dp))
+
+                                            Box(modifier = Modifier.zIndex(0f)) {
+                                                TextButton(
+                                                    onClick = { sortExpanded = true },
+                                                    shape = RoundedCornerShape(50),
+                                                    colors = ButtonDefaults.textButtonColors(
+                                                        containerColor = if (darkTheme) Color(0xFF2C2C2C) else Color(
+                                                            0xFFEFEFEF
+                                                        ),
+                                                        contentColor = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.SwapVert,
+                                                        contentDescription = "Sort",
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text(
+                                                        text = selectedSort,
+                                                        style = MaterialTheme.typography.labelLarge
+                                                    )
+                                                }
+
+                                                DropdownMenu(
+                                                    expanded = sortExpanded,
+                                                    onDismissRequest = { sortExpanded = false },
+                                                    modifier = Modifier.background(MaterialTheme.colorScheme.surface)
+                                                ) {
+                                                    sortOptions.forEach { option ->
+                                                        DropdownMenuItem(
+                                                            text = { Text(option) },
+                                                            onClick = {
+                                                                selectedSort = option
+                                                                sortExpanded = false
+                                                            }
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            items(filteredRecords.size) { index ->
+                                val (key, record) = filteredRecords[index]
+                                ScanCard(record = record, recordKey = key, darkTheme = darkTheme)
+                            }
+
+                            item { Spacer(modifier = Modifier.height(70.dp)) }
+                        }
+
+
+                        val buttonBackgroundColor = if (darkTheme) {
+                            Color(0xFF2C2C2C) // Dark gray for dark mode
+                        } else {
+                            Color.White
+                        }
+
+
+                        AnimatedVisibility(
+                            visible = showScrollToTop,
+                            enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
+                            exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(end = 45.dp, bottom = 100.dp)
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                shadowElevation = 6.dp,
+                                color = buttonBackgroundColor,
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        scope.launch {
+                                            listState.scrollToItem(0)
+
+                                        }
+                                    }
+
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowUp,
+                                        contentDescription = "Scroll to top",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+
+
+
+                    }
 
 
                 }
@@ -1265,35 +1387,4 @@ fun RecordsScreen(
 }
 
 
-
-/*
-val titlePaint = android.graphics.Paint().apply {
-    isAntiAlias = true
-    color = android.graphics.Color.BLACK
-    textSize = 24f
-    textAlign = android.graphics.Paint.Align.CENTER
-    typeface = android.graphics.Typeface.create(android.graphics.Typeface.SERIF, android.graphics.Typeface.BOLD)
-}
-
-val subtitlePaint = android.graphics.Paint().apply {
-    isAntiAlias = true
-    color = android.graphics.Color.DKGRAY
-    textSize = 16f
-    textAlign = android.graphics.Paint.Align.CENTER
-    typeface = android.graphics.Typeface.create(android.graphics.Typeface.SERIF, android.graphics.Typeface.ITALIC)
-}
-
-val bodyPaint = android.graphics.Paint().apply {
-    isAntiAlias = true
-    color = android.graphics.Color.BLACK
-    textSize = 14f
-    textAlign = android.graphics.Paint.Align.LEFT
-}
-
-val borderPaint = android.graphics.Paint().apply {
-    color = android.graphics.Color.DKGRAY
-    style = android.graphics.Paint.Style.STROKE
-    strokeWidth = 4f
-}
-*/
 

@@ -30,6 +30,7 @@ import com.capstone.safehito.util.toRelativeTime
 import com.capstone.safehito.util.toDateOnly
 import com.google.accompanist.swiperefresh.SwipeRefresh
 import com.google.accompanist.swiperefresh.rememberSwipeRefreshState
+import com.google.accompanist.swiperefresh.SwipeRefreshIndicator
 import com.capstone.safehito.ui.theme.LightBlueBackground
 import com.capstone.safehito.ui.theme.ReadNotificationBackground
 import kotlinx.coroutines.launch
@@ -49,8 +50,13 @@ fun NotificationScreen(
 
     fun refreshNotifications() {
         isRefreshing = true
-        // You could trigger a manual refresh logic if needed
-        isRefreshing = false
+        // Trigger a manual refresh of notifications
+        notificationViewModel.loadNotifications()
+        // Delay to show refresh indicator
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+            kotlinx.coroutines.delay(1000)
+            isRefreshing = false
+        }
     }
 
     val swipeRefreshState = rememberSwipeRefreshState(isRefreshing)
@@ -130,6 +136,16 @@ fun NotificationScreen(
         SwipeRefresh(
             state = swipeRefreshState,
             onRefresh = { refreshNotifications() },
+            indicator = { state, trigger ->
+                SwipeRefreshIndicator(
+                    state = state,
+                    refreshTriggerDistance = trigger,
+                    backgroundColor = if (darkTheme) Color(0xFF2C2C2C) else Color.White,
+                    contentColor = Color(0xFF5DCCFC), // Your app's primary blue color
+                    scale = true,
+                    arrowEnabled = true,
+                )
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)

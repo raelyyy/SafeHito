@@ -114,7 +114,16 @@ class WaterStatusManager(private val context: Context, private val userId: Strin
 
         val waterLevelNormal = waterLevel >= 20.0
         paramStates["Water Level"] = waterLevelNormal
-        if (!waterLevelNormal) triggeredParams.add("Water Level ($waterLevel cm)")
+        if (!waterLevelNormal) {
+            val levelStatus = when {
+                waterLevel >= 40.0 -> "Excellent"
+                waterLevel >= 30.0 -> "Good"
+                waterLevel >= 20.0 -> "Sufficient"
+                waterLevel >= 10.0 -> "Low"
+                else -> "Critical"
+            }
+            triggeredParams.add("Water Level ($waterLevel cm - $levelStatus)")
+        }
 
         val failedCount = triggeredParams.size
 

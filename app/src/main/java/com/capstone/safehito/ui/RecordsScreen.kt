@@ -125,37 +125,37 @@ fun ScanCard(record: Record, recordKey: String, darkTheme: Boolean) {
             statusText = "Infected – Saprolegniasis",
             dotColor = Color.Red
         )
-        record.result.contains("reddish", ignoreCase = true) -> DiagnosisStyle(
-            bgColor = if (darkTheme) Color(0xFF424242) else Color(0xFFF5F5F5),
-            textColor = if (darkTheme) Color(0xFFFF8A80) else Color(0xFFD32F2F),
-            statusText = "Infected – Bacterial Infection",
-            dotColor = Color.Red
-        )
         record.result.contains("whitepatch", ignoreCase = true) -> DiagnosisStyle(
             bgColor = if (darkTheme) Color(0xFF424242) else Color(0xFFF5F5F5),
             textColor = if (darkTheme) Color(0xFFFF8A80) else Color(0xFFD32F2F),
-            statusText = "Infected – White Spot Disease",
+            statusText = "Infected – White Patch",
+            dotColor = Color.Red
+        )
+        record.result.contains("reddish", ignoreCase = true) -> DiagnosisStyle(
+            bgColor = if (darkTheme) Color(0xFF424242) else Color(0xFFF5F5F5),
+            textColor = if (darkTheme) Color(0xFFFF8A80) else Color(0xFFD32F2F),
+            statusText = "Infected – Reddish Patch",
             dotColor = Color.Red
         )
         record.result.contains("ulcer", ignoreCase = true) -> DiagnosisStyle(
             bgColor = if (darkTheme) Color(0xFF424242) else Color(0xFFF5F5F5),
             textColor = if (darkTheme) Color(0xFFFF8A80) else Color(0xFFD32F2F),
-            statusText = "Infected – Bacterial Ulcer",
+            statusText = "Infected – Ulcerative Lesion",
             dotColor = Color.Red
         )
-        record.result.contains("Fungal", ignoreCase = true) -> DiagnosisStyle(
+        record.result.contains("fungal", ignoreCase = true) -> DiagnosisStyle(
             bgColor = if (darkTheme) Color(0xFF424242) else Color(0xFFF5F5F5),
             textColor = if (darkTheme) Color(0xFFFF9890) else Color(0xFFD32F2F),
             statusText = "General Fungal Infection",
             dotColor = Color.Red
         )
-        record.result.contains("Healthy", ignoreCase = true) -> DiagnosisStyle(
+        record.result.contains("healthy", ignoreCase = true) -> DiagnosisStyle(
             bgColor = if (darkTheme) Color(0xFF424242) else Color(0xFFF5F5F5),
             textColor = if (darkTheme) Color(0xFF81C784) else Color(0xFF2E7D32),
             statusText = "Healthy",
             dotColor = Color(0xFF4CAF50)
         )
-        record.result.contains("No Fish", ignoreCase = true) -> DiagnosisStyle(
+        record.result.contains("no fish", ignoreCase = true) -> DiagnosisStyle(
             bgColor = if (darkTheme) Color(0xFF424242) else Color(0xFFF5F5F5),
             textColor = if (darkTheme) Color(0xFFEEEEEE) else Color(0xFF616161),
             statusText = "No Fish Detected",
@@ -178,35 +178,35 @@ fun ScanCard(record: Record, recordKey: String, darkTheme: Boolean) {
     val diagnosisDetails = when {
         record.result.contains("cotton", ignoreCase = true) -> DiagnosisDetails(
             scientificName = "Saprolegnia spp.",
-            shortDescription = "Cotton-like growth on skin or fins"
-        )
-        record.result.contains("reddish", ignoreCase = true) -> DiagnosisDetails(
-            scientificName = "Bacterial infection",
-            shortDescription = "Reddish patches or skin lesions"
+            shortDescription = "Cotton-like fungal growth on skin or fins."
         )
         record.result.contains("whitepatch", ignoreCase = true) -> DiagnosisDetails(
-            scientificName = "White Patch",
-            shortDescription = "White spot disease on skin"
+            scientificName = "Possible early fungal lesion",
+            shortDescription = "Flat white patches that may indicate early fungal infection."
+        )
+        record.result.contains("reddish", ignoreCase = true) -> DiagnosisDetails(
+            scientificName = "Possible secondary infection",
+            shortDescription = "Reddish areas from irritation or bacterial co-infection."
         )
         record.result.contains("ulcer", ignoreCase = true) -> DiagnosisDetails(
-            scientificName = "Bacterial ulcer",
-            shortDescription = "Open wounds with bacterial infection"
+            scientificName = "Skin ulcer / necrotic lesion",
+            shortDescription = "Open sores often linked to advanced fungal or bacterial infection."
         )
         record.result.contains("fungal", ignoreCase = true) -> DiagnosisDetails(
             scientificName = "Various fungal species",
-            shortDescription = "Signs of fungal infection detected"
+            shortDescription = "Signs of fungal infection detected."
         )
         record.result.contains("healthy", ignoreCase = true) -> DiagnosisDetails(
             scientificName = "No pathogens detected",
-            shortDescription = "Fish appear to be in good condition"
+            shortDescription = "Fish appear to be in good condition."
         )
         record.result.contains("no fish", ignoreCase = true) -> DiagnosisDetails(
             scientificName = "No fish detected",
-            shortDescription = "There's no visible fish in the frame"
+            shortDescription = "No visible fish in the frame."
         )
         else -> DiagnosisDetails(
             scientificName = "Unknown",
-            shortDescription = "No additional details"
+            shortDescription = "No additional details available."
         )
     }
 

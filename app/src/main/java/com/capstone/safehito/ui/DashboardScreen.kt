@@ -3178,42 +3178,43 @@ fun FishDiseaseGuideCard() {
 
     val diseases = listOf(
         DiseaseInfo(
-            name = "Cotton",
+            name = "Saprolegnia",
             emoji = "🦠",
             imageRes = R.drawable.ic_cotton,
             scientificName = "Saprolegnia spp.",
-            description = "Fungal infection causing cotton-like growth",
-            symptoms = "Cotton-like growth on skin or fins",
-            treatment = "Antifungal medication, improve water quality"
+            description = "A fungal infection that causes cotton-like growth on the skin or fins.",
+            symptoms = "White, cotton-like patches on skin, fins, or gills.",
+            treatment = "Apply antifungal treatment and improve water quality."
         ),
         DiseaseInfo(
             name = "White Patch",
             emoji = "⚪",
             imageRes = R.drawable.ic_whitepatch,
-            scientificName = "White spot disease",
-            description = "White spot disease is a common parasitic infection in fish",
-            symptoms = "Small white spots on body and fins, fish may scratch against objects",
-            treatment = "Increase water temperature, use anti-parasitic medication"
+            scientificName = "Possible early fungal lesion",
+            description = "White patches that may indicate early fungal infection or minor skin damage.",
+            symptoms = "Small, flat white patches on the skin or fins.",
+            treatment = "Monitor closely, improve water quality, and apply antifungal treatment if it spreads."
         ),
         DiseaseInfo(
-            name = "Reddish",
+            name = "Reddish Patch",
             emoji = "🔴",
             imageRes = R.drawable.ic_reddish,
-            scientificName = "Bacterial Infection",
-            description = "Bacterial infection causing red patches on fish skin",
-            symptoms = "Red patches or sores on body, lethargic behavior",
-            treatment = "Antibiotic treatment, improve water quality"
+            scientificName = "Possible secondary infection",
+            description = "Reddish areas caused by irritation, inflammation, or bacterial co-infection.",
+            symptoms = "Red or inflamed skin patches, fish may appear stressed or weak.",
+            treatment = "Improve water quality, use antibacterial treatment if needed."
         ),
         DiseaseInfo(
             name = "Ulcer",
             emoji = "🟤",
             imageRes = R.drawable.ic_ulcer,
-            scientificName = "Bacterial Ulcer",
-            description = "Open wounds with bacterial infection",
-            symptoms = "Open wounds or ulcers, weight loss and poor appetite",
-            treatment = "Antibiotic treatment, wound care, isolate affected fish"
+            scientificName = "Skin ulcer / necrotic lesion",
+            description = "Open wounds that may result from advanced fungal or bacterial infection.",
+            symptoms = "Visible sores or open wounds, weight loss, poor appetite.",
+            treatment = "Isolate affected fish, treat with antibacterial/antifungal medication, and maintain clean water."
         )
     )
+
 
 
 

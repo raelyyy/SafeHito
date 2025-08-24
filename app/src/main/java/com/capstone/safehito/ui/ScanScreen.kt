@@ -239,7 +239,7 @@ fun ScanScreen(
     val db = FirebaseDatabase.getInstance()
     var hasUnread by remember { mutableStateOf(false) }
     var confidence by remember { mutableStateOf(0f) }
-    
+
     // Pi Status Manager
     val piStatusManager = remember { PiStatusManager() }
     var showPiStatusDialog by remember { mutableStateOf(false) }
@@ -257,14 +257,14 @@ fun ScanScreen(
     LaunchedEffect(Unit) {
         piStatusManager.startMonitoring()
     }
-    
+
     // Clean up when component is destroyed
     DisposableEffect(Unit) {
         onDispose {
             piStatusManager.stopMonitoring()
         }
     }
-    
+
 
 
     LaunchedEffect(uid) {
@@ -537,7 +537,8 @@ fun ScanScreen(
                                         val headers = mapOf("ngrok-skip-browser-warning" to "true")
 
                                         if (serverUrl.isNotEmpty()) {
-                                            loadUrl("$serverUrl/live?key=$reloadKey", headers)
+                                            loadUrl("$serverUrl/live-tracking?key=$reloadKey", headers)
+
                                         }
 
                                         rotation = 270f // keep your rotation

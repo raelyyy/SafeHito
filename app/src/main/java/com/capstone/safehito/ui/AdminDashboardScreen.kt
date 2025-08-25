@@ -630,14 +630,21 @@ fun AdminDashboardScreen(
         forecastError = null
         coroutineScope.launch {
             try {
-                forecastData = WeatherApi.retrofitService.getForecastByCity(
+                val response = WeatherApi.retrofitService.getForecastByCity(
                     cityName = "Candaba,PH",
                     apiKey = "679a23f4f66196b14b59b8cc5bfca900"
                 )
+
+                if (response.isSuccessful) {
+                    forecastData = response.body()
+                } else {
+                    forecastError = "Error: ${response.code()} - ${response.message()}"
+                }
             } catch (e: Exception) {
                 forecastError = "Failed to load forecast: ${e.localizedMessage}"
-                Log.e("AdminWeatherRefresh", "Error refreshing weather: ${e.message}")
-            } finally {
+                Log.e("WeatherRefresh", "Error refreshing weather", e)
+            }
+            finally {
                 isLoadingForecast = false
             }
         }

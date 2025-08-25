@@ -12,8 +12,9 @@ interface WeatherApiService {
         @Query("q") cityName: String,
         @Query("appid") apiKey: String,
         @Query("units") units: String = "metric"
-    ): ForecastResponse
+    ): retrofit2.Response<ForecastResponse>
 }
+
 
 // Singleton Retrofit instance
 object WeatherApi {

@@ -346,7 +346,7 @@ fun SettingsScreen(
             Text("SafeHito monitors water quality and fungal health in African catfish using AI and real-time sensors to ensure a healthy aquatic environment.")
         }
         ModalSheetType.Developers -> ModalSheet(devsSheetState, { showSheet = null }, "Developers") {
-            Text("Capstone Devs:\n\nRaely Ivan Reyes\nJomari Ramos\nJesie Reyes\nDavid Monzon\nMay Sagum")
+            Text("Capstone Devs:\n\nRaely Ivan Reyes\nJesie Reyes\nDavid Monzon\nJomari Ramos\nFelicia May Sagum")
         }
         null -> {}
     }

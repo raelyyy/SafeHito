@@ -43,16 +43,19 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.ControlPointDuplicate
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.FitScreen
 import androidx.compose.material.icons.outlined.Pets
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -65,6 +68,7 @@ import androidx.coordinatorlayout.widget.CoordinatorLayout.Behavior.getTag
 import androidx.coordinatorlayout.widget.CoordinatorLayout.Behavior.setTag
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavHostController
+import androidx.room.vo.Warning
 import coil.compose.AsyncImage
 import com.capstone.safehito.R
 import com.capstone.safehito.viewmodel.NotificationViewModel
@@ -239,6 +243,7 @@ fun ScanScreen(
     val db = FirebaseDatabase.getInstance()
     var hasUnread by remember { mutableStateOf(false) }
     var confidence by remember { mutableStateOf(0f) }
+    val scope = rememberCoroutineScope()
 
     // Pi Status Manager
     val piStatusManager = remember { PiStatusManager() }
@@ -522,36 +527,145 @@ fun ScanScreen(
                         )
                     }
 
+
+
                     showLivePreview && usePiCamera -> {
+                        var isRefreshing by remember { mutableStateOf(false) }
+                        val piStatus by piStatusManager.piStatus.collectAsState()
+
                         Box(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .then(
+                                    if (!piStatus.isOnline || serverUrl.isEmpty()) {
+                                        Modifier
+                                            .background(
+                                                if (darkTheme) Color(0xFF2A2A2A)
+                                                else Color(0xFFF5F5F5)
+                                            )
+                                            .padding(16.dp)
+                                    } else {
+                                        Modifier // ✅ No padding or background when online
+                                    }
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
-                            AndroidView(
-                                factory = { ctx ->
-                                    WebView(ctx).apply {
-                                        settings.javaScriptEnabled = true
-                                        webViewClient = WebViewClient()
+                            if (piStatus.isOnline && serverUrl.isNotEmpty()) {
+                                // ✅ Show Pi live stream without border
+                                AndroidView(
+                                    factory = { ctx ->
+                                        WebView(ctx).apply {
+                                            settings.javaScriptEnabled = true
+                                            webViewClient = WebViewClient()
 
-                                        // ✅ Always send skip-warning header
-                                        val headers = mapOf("ngrok-skip-browser-warning" to "true")
-
-                                        if (serverUrl.isNotEmpty()) {
+                                            val headers = mapOf("ngrok-skip-browser-warning" to "true")
                                             loadUrl("$serverUrl/live-tracking?key=$reloadKey", headers)
 
+                                            rotation = 270f
                                         }
+                                    },
+                                    modifier = Modifier
+                                        .size(480.dp)
+                                        .graphicsLayer { rotationZ = 90f }
+                                )
+                                LaunchedEffect(Unit) { isRefreshing = false }
+                            } else {
+                                // ❌ Friendly Offline Screen (with background + padding)
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudOff,
+                                        contentDescription = "Pi Offline",
+                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                                        modifier = Modifier.size(90.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
 
-                                        rotation = 270f // keep your rotation
+                                    Text(
+                                        text = "Unable to connect to Raspberry Pi",
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 18.sp
+                                        ),
+                                        textAlign = TextAlign.Center,
+                                        color = MaterialTheme.colorScheme.onBackground
+                                    )
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Your Pi might be offline or server is not available.\n" +
+                                                "Make sure it's running and try again.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        textAlign = TextAlign.Center,
+                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                                    )
+
+                                    Spacer(modifier = Modifier.height(24.dp))
+
+                                    Button(
+                                        onClick = {
+                                            isRefreshing = true
+                                            reloadKey++   // reload WebView
+                                            piStatusManager.startMonitoring()
+
+                                            scope.launch {
+                                                delay(3000)
+                                                isRefreshing = false
+                                            }
+                                        },
+                                        contentPadding = PaddingValues(),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                                        shape = RoundedCornerShape(50),
+                                        modifier = Modifier
+                                            .fillMaxWidth(0.6f)
+                                            .height(50.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .background(
+                                                    brush = Brush.linearGradient(
+                                                        colors = listOf(Color(0xFF5DCCFC), Color(0xFF007EF2))
+                                                    ),
+                                                    shape = RoundedCornerShape(50)
+                                                )
+                                                .fillMaxSize(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (isRefreshing) {
+                                                CircularProgressIndicator(
+                                                    color = Color.White,
+                                                    strokeWidth = 2.dp,
+                                                    modifier = Modifier.size(22.dp)
+                                                )
+                                            } else {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Replay,
+                                                        contentDescription = "Retry",
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        text = "Reconnect Pi",
+                                                        color = Color.White,
+                                                        fontSize = 15.sp,
+                                                        fontWeight = FontWeight.Medium
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
-                                },
-                                modifier = Modifier
-                                    .size(480.dp)
-                                    .graphicsLayer {
-                                        rotationZ = 90f
-                                    }
-                            )
+                                }
+                            }
                         }
                     }
+
 
 
 

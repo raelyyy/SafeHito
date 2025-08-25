@@ -24,6 +24,11 @@ class NotificationViewModel(private val uid: String) : ViewModel() {
     private var fishStatusListenerAdded = false
     private var lastProcessedFishStatusKey: String? = null
 
+    private var notificationsListener: ValueEventListener? = null
+
+    private var lastWaterQualityMessage: String? = null
+    private var lastWaterQualityTime: Long = 0L
+
     // Single instance flags
     companion object {
         private var isListeningFishStatus = false
@@ -40,15 +45,14 @@ class NotificationViewModel(private val uid: String) : ViewModel() {
         if (listenerAdded) return
         listenerAdded = true
 
-        notifRef.addValueEventListener(object : ValueEventListener {
+        notificationsListener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 viewModelScope.launch {
                     val notifList = snapshot.children.mapNotNull { child ->
                         try {
                             val id = child.child("id").getValue(String::class.java)
                                 ?: child.key ?: return@mapNotNull null
-                            val message =
-                                child.child("message").getValue(String::class.java) ?: "No message"
+                            val message = child.child("message").getValue(String::class.java) ?: "No message"
                             val time = when (val value = child.child("time").value) {
                                 is Long -> value
                                 is String -> value.toLongOrNull() ?: 0L
@@ -62,15 +66,18 @@ class NotificationViewModel(private val uid: String) : ViewModel() {
                             null
                         }
                     }
-
-                    _notifications.value = notifList.sortedByDescending { it.time }
+                    _notifications.value = notifList
+                        .distinctBy { it.id }
+                        .sortedByDescending { it.time }
                 }
             }
 
             override fun onCancelled(error: DatabaseError) {
                 Log.e("NotificationDebug", "Failed to load notifications: ${error.message}")
             }
-        })
+        }
+
+        notifRef.addValueEventListener(notificationsListener as ValueEventListener)
     }
 
     // Automatically start watching fish status (only once)
@@ -130,11 +137,27 @@ class NotificationViewModel(private val uid: String) : ViewModel() {
 
 
     private fun createNotification(message: String) {
+        val now = System.currentTimeMillis()
+        val lowerMsg = message.lowercase()
+
+        val isWaterQuality = listOf("ph", "oxygen", "dissolved", "temperature", "turbidity")
+            .any { it in lowerMsg }
+
+        if (isWaterQuality) {
+            // ✅ prevent spam: skip if same water quality message appears within 2 minutes
+            if (lastWaterQualityMessage == message && (now - lastWaterQualityTime) < 120_000) {
+                Log.d("NotificationViewModel", "Skipping duplicate water quality notification.")
+                return
+            }
+            lastWaterQualityMessage = message
+            lastWaterQualityTime = now
+        }
+
         val newRef = notifRef.push()
         val notif = mapOf(
             "id" to newRef.key,
             "message" to message,
-            "time" to System.currentTimeMillis(),
+            "time" to now,
             "read" to false
         )
         newRef.setValue(notif)
@@ -145,6 +168,7 @@ class NotificationViewModel(private val uid: String) : ViewModel() {
                 Log.e("NotificationViewModel", "Failed to create notification: ${it.message}")
             }
     }
+
 
     fun markAllAsRead() {
         notifRef.get().addOnSuccessListener { snapshot ->
@@ -209,12 +233,8 @@ class NotificationViewModel(private val uid: String) : ViewModel() {
     }
 
     fun loadNotifications() {
-        // Force refresh by removing and re-adding the listener
-        if (listenerAdded) {
-            notifRef.removeEventListener(object : ValueEventListener {
-                override fun onDataChange(snapshot: DataSnapshot) {}
-                override fun onCancelled(error: DatabaseError) {}
-            })
+        if (listenerAdded && notificationsListener != null) {
+            notifRef.removeEventListener(notificationsListener!!)
             listenerAdded = false
         }
         listenToNotifications()

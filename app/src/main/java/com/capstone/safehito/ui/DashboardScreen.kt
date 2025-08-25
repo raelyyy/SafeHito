@@ -176,6 +176,8 @@ import com.google.accompanist.swiperefresh.SwipeRefreshIndicator
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.window.DialogProperties
 import com.capstone.safehito.ui.toProperCase
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 
 @RequiresApi(Build.VERSION_CODES.P)
 @OptIn(ExperimentalMaterial3Api::class)
@@ -454,36 +456,56 @@ fun DashboardScreen(
     var forecastError by remember { mutableStateOf<String?>(null) }
     var isLoadingForecast by remember { mutableStateOf(true) }
 
-    fun refreshWeatherData() {
+    fun refreshWeatherData(scope: CoroutineScope = coroutineScope): Job {
         isLoadingForecast = true
         forecastError = null
-        coroutineScope.launch {
+
+        return scope.launch {
             try {
-                forecastData = WeatherApi.retrofitService.getForecastByCity(
+                val response = WeatherApi.retrofitService.getForecastByCity(
                     cityName = "Candaba,PH",
                     apiKey = "679a23f4f66196b14b59b8cc5bfca900"
                 )
+
+                if (response.isSuccessful) {
+                    forecastData = response.body()
+                    if (forecastData == null) {
+                        forecastError = "Empty response body"
+                    }
+                } else {
+                    forecastError = "Error: ${response.code()} - ${response.message()}"
+                }
             } catch (e: Exception) {
                 forecastError = "Failed to load forecast: ${e.localizedMessage}"
-                Log.e("WeatherRefresh", "Error refreshing weather: ${e.message}")
+                Log.e("WeatherRefresh", "Error refreshing weather", e)
             } finally {
                 isLoadingForecast = false
             }
         }
     }
 
-    fun refreshWeatherDataAsync(): kotlinx.coroutines.Job {
+    fun refreshWeatherDataAsync(scope: CoroutineScope = coroutineScope):Job {
         isLoadingForecast = true
         forecastError = null
-        return coroutineScope.launch {
+
+        return scope.launch {
             try {
-                forecastData = WeatherApi.retrofitService.getForecastByCity(
+                val response = WeatherApi.retrofitService.getForecastByCity(
                     cityName = "Candaba,PH",
                     apiKey = "679a23f4f66196b14b59b8cc5bfca900"
                 )
+
+                if (response.isSuccessful) {
+                    forecastData = response.body()
+                    if (forecastData == null) {
+                        forecastError = "Empty response body"
+                    }
+                } else {
+                    forecastError = "Error: ${response.code()} - ${response.message()}"
+                }
             } catch (e: Exception) {
                 forecastError = "Failed to load forecast: ${e.localizedMessage}"
-                Log.e("WeatherRefresh", "Error refreshing weather: ${e.message}")
+                Log.e("WeatherRefresh", "Error refreshing weather", e)
             } finally {
                 isLoadingForecast = false
             }
@@ -641,23 +663,23 @@ fun DashboardScreen(
                     try {
                         // Refresh water data
                         viewModel.refresh()
-                        
+
                         // Force reload fish status
                         uid?.let { viewModel.loadLatestFishStatus(it) }
-                        
+
                         // Refresh weather data asynchronously
                         val weatherJob = refreshWeatherDataAsync()
-                        
+
                         // Wait for weather data to complete with timeout
                         var timeout = 0
                         while (isLoadingForecast && timeout < 50) { // 5 second timeout
                             delay(100)
                             timeout++
                         }
-                        
+
                         // Wait for weather job to complete
                         weatherJob.join()
-                        
+
                         // Additional delay to ensure all data is loaded and UI updates
                         delay(300)
                     } catch (e: Exception) {
@@ -2694,7 +2716,7 @@ fun FishStatusCarouselPager(
     onItemSelected: (String) -> Unit
 ) {
     val pagerState = rememberPagerState()
-    val cards = listOf("Main", "Summary", /*"One",*/ "Two", /*"Three"*/)
+    val cards = listOf("Main", "Summary", "Guide")
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp.dp
     val screenWidthDp = configuration.screenWidthDp
@@ -2772,9 +2794,7 @@ fun FishStatusCarouselPager(
                     "Summary" -> FishSummaryCard(
                         scanHistory = scanHistory
                     )
-                    //"One" -> FillerCardOne()
-                    "Two" -> FishDiseaseGuideCard()
-                    "Three" -> FillerCardThree()
+                    "Guide" -> FishDiseaseGuideCard()
                 }
             }
         }
@@ -3037,114 +3057,6 @@ fun AnimatedGifPainter(): Painter {
 
 
 
-@RequiresApi(Build.VERSION_CODES.P)
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun FillerCardOne() {
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    val scope = rememberCoroutineScope()
-    val tapRipples = remember { mutableStateListOf<Animatable<Float, AnimationVector1D>>() }
-    var tapOffset by remember { mutableStateOf(Offset.Zero) }
-
-    val responsiveBoxHeight = when {
-        screenWidthDp < 340 -> 170.dp
-        screenWidthDp < 380 -> 190.dp
-        screenWidthDp < 420 -> 210.dp
-        else -> 230.dp
-    }
-
-    Box(
-        modifier = Modifier
-            .padding(vertical = 10.dp)
-            .fillMaxWidth()
-            .height(responsiveBoxHeight)
-            .shadow(8.dp, RoundedCornerShape(20.dp))
-            .clip(RoundedCornerShape(20.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .pointerInput(Unit) {
-                detectTapGestures { offset ->
-                    tapOffset = offset
-                    repeat(3) { i ->
-                        val ripple = Animatable(0f)
-                        tapRipples.add(ripple)
-                        scope.launch {
-                            delay(i * 120L)
-                            ripple.animateTo(300f + i * 40f, tween(1200, easing = FastOutSlowInEasing))
-                            tapRipples.remove(ripple)
-                        }
-                    }
-                }
-            }
-    ) {
-        // Background GIF
-        Image(
-            painter = AnimatedGifPainterOne(),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.matchParentSize()
-        )
-
-        // Blur overlay
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-//                .blur(16.dp)
-//                .background(Color(0xAA222222))
-        )
-
-        // Ripple animation
-        Canvas(modifier = Modifier.matchParentSize()) {
-            tapRipples.forEachIndexed { i, ripple ->
-                drawCircle(
-                    color = Color.White.copy(alpha = 0.2f - i * 0.05f),
-                    radius = ripple.value,
-                    center = tapOffset,
-                    style = Stroke(width = 2f + i)
-                )
-            }
-        }
-
-        // Content
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 20.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = "",
-                fontSize = 16.sp,
-                color = Color.White,
-                fontWeight = FontWeight.Bold
-            )
-
-        }
-    }
-}
-
-
-@RequiresApi(Build.VERSION_CODES.P)
-@Composable
-fun AnimatedGifPainterOne(): Painter {
-    val context = LocalContext.current
-    val imageLoader = ImageLoader.Builder(context)
-        .components { add(ImageDecoderDecoder.Factory()) }
-        .build()
-
-    return rememberAsyncImagePainter(
-        model = ImageRequest.Builder(context)
-            .data("file:///android_asset/ilog.gif")
-            .build(),
-        imageLoader = imageLoader
-    )
-}
-
-
-
-
-
-
 
 // Disease information data class
 data class DiseaseInfo(
@@ -3184,7 +3096,7 @@ fun FishDiseaseGuideCard() {
             scientificName = "Saprolegnia spp.",
             description = "A fungal infection that causes cotton-like growth on the skin or fins.",
             symptoms = "White, cotton-like patches on skin, fins, or gills.",
-            treatment = "Apply antifungal treatment and improve water quality."
+            treatment = "Apply antifungal treatment, give a short salt bath (1–3 g/L for 5–10 min), and improve water quality."
         ),
         DiseaseInfo(
             name = "White Patch",
@@ -3193,7 +3105,7 @@ fun FishDiseaseGuideCard() {
             scientificName = "Possible early fungal lesion",
             description = "White patches that may indicate early fungal infection or minor skin damage.",
             symptoms = "Small, flat white patches on the skin or fins.",
-            treatment = "Monitor closely, improve water quality, and apply antifungal treatment if it spreads."
+            treatment = "Monitor closely, improve water quality, apply antifungal treatment if it spreads, and consider a short salt bath."
         ),
         DiseaseInfo(
             name = "Reddish Patch",
@@ -3202,7 +3114,7 @@ fun FishDiseaseGuideCard() {
             scientificName = "Possible secondary infection",
             description = "Reddish areas caused by irritation, inflammation, or bacterial co-infection.",
             symptoms = "Red or inflamed skin patches, fish may appear stressed or weak.",
-            treatment = "Improve water quality, use antibacterial treatment if needed."
+            treatment = "Improve water quality, use antibacterial treatment if needed; a mild salt bath may help reduce stress."
         ),
         DiseaseInfo(
             name = "Ulcer",
@@ -3211,7 +3123,7 @@ fun FishDiseaseGuideCard() {
             scientificName = "Skin ulcer / necrotic lesion",
             description = "Open wounds that may result from advanced fungal or bacterial infection.",
             symptoms = "Visible sores or open wounds, weight loss, poor appetite.",
-            treatment = "Isolate affected fish, treat with antibacterial/antifungal medication, and maintain clean water."
+            treatment = "Isolate affected fish, treat with antibacterial/antifungal medication, and maintain clean water"
         )
     )
 
@@ -3354,7 +3266,7 @@ fun FishDiseaseGuideCard() {
             }
         }
     }
-    
+
     // Disease Information Bottom Modal
     if (showDiseaseModal && selectedDisease != null) {
         val disease = selectedDisease!!
@@ -3367,7 +3279,7 @@ fun FishDiseaseGuideCard() {
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(24.dp)
-                    .padding(bottom = 32.dp),
+                    .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // Disease Header
@@ -3555,9 +3467,9 @@ fun FishDiseaseGuideCard() {
                         )
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.height(16.dp))
-                
+
                 // Treatment
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -3582,29 +3494,28 @@ fun FishDiseaseGuideCard() {
                         )
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.height(24.dp))
+            }
 
                 // Close Button
                 Button(
                     onClick = { showDiseaseModal = false },
                     colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                    contentPadding = PaddingValues(),
+                    contentPadding = PaddingValues(), // keep
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(42.dp)
+                        .padding(horizontal = 24.dp)
+                        .height(60.dp) // increase to accommodate Box padding
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(
                                 brush = Brush.linearGradient(
-                                    colors = listOf(
-                                        Color(0xFF5DCCFC), // bright cyan
-                                        Color(0xFF007EF2)  // deep aqua blue
-                                    )
+                                    colors = listOf(Color(0xFF5DCCFC), Color(0xFF007EF2))
                                 ),
-                                shape = RoundedCornerShape(8.dp)
+                                shape = RoundedCornerShape(25.dp)
                             )
                             .padding(vertical = 12.dp),
                         contentAlignment = Alignment.Center
@@ -3618,7 +3529,8 @@ fun FishDiseaseGuideCard() {
                     }
                 }
 
-            }
+
+
         }
     }
 }
@@ -3739,7 +3651,7 @@ fun FillerCardThree() {
                     fontWeight = FontWeight.Medium
                 )
             }
-            
+
             // Middle section with tips
             Column(
                 horizontalAlignment = Alignment.Start
@@ -3760,7 +3672,7 @@ fun FillerCardThree() {
                     color = Color.White.copy(alpha = 0.8f)
                 )
             }
-            
+
             // Bottom section with action
             Column(
                 horizontalAlignment = Alignment.Start
@@ -3798,77 +3710,4 @@ fun AnimatedGifPainterThree(): Painter {
     )
 }
 
-
-
-
-
-
-
-
-@Composable
-fun ThreeDModelCard() {
-    val configuration = LocalConfiguration.current
-    val screenWidthDp = configuration.screenWidthDp
-    val responsiveBoxHeight = when {
-        screenWidthDp < 340 -> 170.dp
-        screenWidthDp < 380 -> 190.dp
-        screenWidthDp < 420 -> 210.dp
-        else -> 230.dp
-    }
-
-    val htmlContent = """
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
-            <style>
-              body { margin: 0; background: transparent; }
-              model-viewer {
-                width: 100vw;
-                height: 100vh;
-              }
-            </style>
-          </head>
-          <body>
-            <model-viewer
-              src="file:///android_asset/fish_model.glb"
-              alt="A 3D fish model"
-              auto-rotate
-              camera-controls
-              background-color="#FFFFFF">
-            </model-viewer>
-          </body>
-        </html>
-    """.trimIndent()
-
-    Box(
-        modifier = Modifier
-            .padding(vertical = 10.dp)
-            .fillMaxWidth()
-            .height(responsiveBoxHeight)
-            .shadow(8.dp, RoundedCornerShape(20.dp))
-            .clip(RoundedCornerShape(20.dp))
-            .background(MaterialTheme.colorScheme.surface)
-    ) {
-        AndroidView(
-            factory = { context ->
-                WebView(context).apply {
-                    settings.javaScriptEnabled = true
-                    settings.allowFileAccess = true
-                    settings.domStorageEnabled = true
-                    setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                    loadDataWithBaseURL(
-                        null,
-                        htmlContent,
-                        "text/html",
-                        "utf-8",
-                        null
-                    )
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-    }
-}
 

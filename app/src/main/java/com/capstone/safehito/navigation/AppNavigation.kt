@@ -154,8 +154,10 @@ fun AppNavigation(
         factory = NotificationViewModelFactory(uid ?: "")
     )
 
-    LaunchedEffect(Unit) {
-        notificationViewModel.watchFishStatusAndNotify()
+    LaunchedEffect(uid) {
+        if (uid != null && uid.isNotEmpty()) {
+            notificationViewModel.watchFishStatusAndNotify()
+        }
     }
 
     val adminNavBarItems = listOf(

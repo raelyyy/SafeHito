@@ -13,11 +13,14 @@ import java.util.concurrent.TimeUnit
 
 data class PiStatus(
     val isOnline: Boolean = false,
+    val cloudflareUrl: String? = null,
     val ipAddress: String? = null,
+    val serverUrl: String? = null,   // <- always the chosen one
     val lastSeen: Long = 0L,
     val connectionQuality: ConnectionQuality = ConnectionQuality.UNKNOWN,
     val errorMessage: String? = null
 )
+
 
 enum class ConnectionQuality {
     EXCELLENT,    // < 100ms response time
@@ -29,15 +32,15 @@ enum class ConnectionQuality {
 
 class PiStatusManager {
     private val database = FirebaseDatabase.getInstance()
-    private val piIpRef = database.getReference("raspberry_pi/ip")
+    private val piIpRef = database.getReference("raspberry_pi/local_ip")
     private val piStatusRef = database.getReference("raspberry_pi/status")
-    private val piNgrokRef = database.getReference("raspberry_pi/ngrok_url")
+    private val piCloudflareRef = database.getReference("raspberry_pi/cloudflare_url")
 
     private val _piStatus = MutableStateFlow(PiStatus())
     val piStatus: StateFlow<PiStatus> = _piStatus
     
     private var ipListener: ValueEventListener? = null
-    private var ngrokListener: ValueEventListener? = null
+    private var cloudflareListener: ValueEventListener? = null
     private var statusCheckJob: Job? = null
     private var heartbeatJob: Job? = null
     
@@ -48,52 +51,58 @@ class PiStatusManager {
         .retryOnConnectionFailure(false)
         .build()
 
+    // in PiStatusManager
     fun startMonitoring() {
-        stopMonitoring() // Clean up any existing monitoring
+        stopMonitoring()
 
-        // ✅ Listen for ngrok URL first (highest priority)
-        ngrokListener = object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                val ngrokUrl = snapshot.getValue(String::class.java)
-                if (!ngrokUrl.isNullOrEmpty()) {
-                    Log.d("PiStatusManager", "Using ngrok URL for status: $ngrokUrl")
-                    _piStatus.value = _piStatus.value.copy(ipAddress = ngrokUrl)
-                    startConnectionMonitoring(ngrokUrl)
-                }
-            }
-            override fun onCancelled(error: DatabaseError) {
-                Log.e("PiStatusManager", "Failed to get ngrok URL: ${error.message}")
-            }
-        }
-        piNgrokRef.addValueEventListener(ngrokListener!!)
-
-        // ✅ LAN IP listener only used as fallback if no ngrok
+        // Listen for LAN IP first
         ipListener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val ip = snapshot.getValue(String::class.java)
-                if (!ip.isNullOrEmpty() && _piStatus.value.ipAddress.isNullOrEmpty()) {
-                    Log.d("PiStatusManager", "Fallback to LAN IP: $ip")
-                    _piStatus.value = _piStatus.value.copy(ipAddress = ip)
-                    startConnectionMonitoring(ip)
+                if (!ip.isNullOrEmpty()) {
+                    val lanUrl = "http://$ip:5000"
+                    Log.d("PiStatusManager", "✅ Using LAN IP: $lanUrl")
+                    _piStatus.value = _piStatus.value.copy(
+                        ipAddress = ip,
+                        serverUrl = lanUrl
+                    )
+                    startConnectionMonitoring(lanUrl)
                 }
             }
-            override fun onCancelled(error: DatabaseError) {
-                Log.e("PiStatusManager", "Failed to get IP: ${error.message}")
-            }
+            override fun onCancelled(error: DatabaseError) {}
         }
-        piIpRef.addValueEventListener(ipListener!!)
+        database.getReference("raspberry_pi/local_ip")
+            .addValueEventListener(ipListener!!)
 
-        // ✅ Start heartbeat to update Pi status in Firebase
+        // Only fallback to Cloudflare if LAN missing
+        cloudflareListener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val url = snapshot.getValue(String::class.java)
+                if (!url.isNullOrEmpty() && _piStatus.value.ipAddress.isNullOrEmpty()) {
+                    Log.d("PiStatusManager", "⚠️ Falling back to Cloudflare: $url")
+                    _piStatus.value = _piStatus.value.copy(
+                        cloudflareUrl = url,
+                        serverUrl = url
+                    )
+                    startConnectionMonitoring(url)
+                }
+            }
+            override fun onCancelled(error: DatabaseError) {}
+        }
+        database.getReference("raspberry_pi/cloudflare_url")
+            .addValueEventListener(cloudflareListener!!)
+
         startHeartbeat()
     }
+
 
 
     fun stopMonitoring() {
         ipListener?.let { piIpRef.removeEventListener(it) }
         ipListener = null
 
-        ngrokListener?.let { piNgrokRef.removeEventListener(it) } // ✅ Clean up ngrok listener
-        ngrokListener = null
+        cloudflareListener?.let { piCloudflareRef.removeEventListener(it) }
+        cloudflareListener = null
 
         statusCheckJob?.cancel()
         statusCheckJob = null
@@ -164,14 +173,14 @@ class PiStatusManager {
             }
 
             withContext(Dispatchers.Main) {
-                _piStatus.value = PiStatus(
+                _piStatus.value = _piStatus.value.copy(
                     isOnline = isOnline,
-                    ipAddress = ip,
                     lastSeen = if (isOnline) System.currentTimeMillis() else _piStatus.value.lastSeen,
                     connectionQuality = connectionQuality,
                     errorMessage = if (isOnline) null else errorMessage
                 )
             }
+
         } catch (e: Exception) {
             withContext(Dispatchers.Main) {
                 _piStatus.value = _piStatus.value.copy(isOnline = false, errorMessage = e.message)

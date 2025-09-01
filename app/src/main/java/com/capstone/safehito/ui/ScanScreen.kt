@@ -3,6 +3,7 @@ package com.capstone.safehito.ui
 import android.R.attr.alpha
 import android.app.AlertDialog
 import android.content.Context
+import android.util.Log
 import android.view.ScaleGestureDetector
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -277,9 +278,15 @@ fun ScanScreen(
             val notifRef = db.getReference("notifications/$uid")
             notifRef.addValueEventListener(object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
-                    hasUnread = snapshot.children.any {
-                        it.child("read").getValue(Boolean::class.java) == false
+                    hasUnread = snapshot.children.any { child ->
+                        val message = child.child("message").getValue(String::class.java)
+                        val time = child.child("time").getValue(Long::class.java)
+                        val isRead = child.child("read").getValue(Boolean::class.java)
+
+                        // Only valid notifications with a message + time can count
+                        !message.isNullOrBlank() && time != null && isRead == false
                     }
+
                 }
 
                 override fun onCancelled(error: DatabaseError) {}
@@ -314,21 +321,27 @@ fun ScanScreen(
     var serverUrl by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
-        val dbRef = FirebaseDatabase.getInstance()
-            .getReference("raspberry_pi/ngrok_url")
+        val dbRef = FirebaseDatabase.getInstance().getReference("raspberry_pi")
 
         dbRef.addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                val url = snapshot.getValue(String::class.java)
-                if (!url.isNullOrEmpty()) {
-                    serverUrl = url  // ✅ update state automatically
+                val localIp = snapshot.child("local_ip").getValue(String::class.java)
+                val cloudflareUrl = snapshot.child("cloudflare_url").getValue(String::class.java)
+
+                serverUrl = when {
+                    !localIp.isNullOrEmpty() -> "http://$localIp:5000" // ✅ prefer LAN with port
+                    !cloudflareUrl.isNullOrEmpty() -> cloudflareUrl
+                    else -> ""
                 }
             }
+
             override fun onCancelled(error: DatabaseError) {
                 println("Firebase error: ${error.message}")
             }
         })
     }
+
+
 
 
     DisposableEffect(Unit) {
@@ -549,114 +562,134 @@ fun ScanScreen(
                                 ),
                             contentAlignment = Alignment.Center
                         ) {
-                            if (piStatus.isOnline && serverUrl.isNotEmpty()) {
-                                // ✅ Show Pi live stream without border
-                                AndroidView(
-                                    factory = { ctx ->
-                                        WebView(ctx).apply {
-                                            settings.javaScriptEnabled = true
-                                            webViewClient = WebViewClient()
+                            if (piStatus.isOnline) {
+                                // ✅ Prefer LAN if available
+                                val activeUrl = if (!piStatus.ipAddress.isNullOrEmpty()) {
+                                    "http://${piStatus.ipAddress}:5000"
+                                } else {
+                                    piStatus.serverUrl // fallback (Cloudflare)
+                                }
 
-                                            val headers = mapOf("ngrok-skip-browser-warning" to "true")
-                                            loadUrl("$serverUrl/live-tracking?key=$reloadKey", headers)
+                                if (!activeUrl.isNullOrEmpty()) {
+                                    AndroidView(
+                                        factory = { ctx ->
+                                            WebView(ctx).apply {
+                                                settings.javaScriptEnabled = true
+                                                webViewClient = WebViewClient()
 
-                                            rotation = 270f
-                                        }
-                                    },
-                                    modifier = Modifier
-                                        .size(480.dp)
-                                        .graphicsLayer { rotationZ = 90f }
-                                )
-                                LaunchedEffect(Unit) { isRefreshing = false }
-                            } else {
-                                // ❌ Friendly Offline Screen (with background + padding)
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center,
-                                    modifier = Modifier.fillMaxSize()
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.CloudOff,
-                                        contentDescription = "Pi Offline",
-                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                                        modifier = Modifier.size(90.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(16.dp))
+                                                // headers must be defined inside apply{} before loadUrl
+                                                val headers = mapOf("ngrok-skip-browser-warning" to "true")
+                                                this.loadUrl("$activeUrl/live-tracking?key=$reloadKey", headers)
 
-                                    Text(
-                                        text = "Unable to connect to Raspberry Pi",
-                                        style = MaterialTheme.typography.titleMedium.copy(
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = 18.sp
-                                        ),
-                                        textAlign = TextAlign.Center,
-                                        color = MaterialTheme.colorScheme.onBackground
-                                    )
-
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = "Your Pi might be offline or server is not available.\n" +
-                                                "Make sure it's running and try again.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        textAlign = TextAlign.Center,
-                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                                    )
-
-                                    Spacer(modifier = Modifier.height(24.dp))
-
-                                    Button(
-                                        onClick = {
-                                            isRefreshing = true
-                                            reloadKey++   // reload WebView
-                                            piStatusManager.startMonitoring()
-
-                                            scope.launch {
-                                                delay(3000)
-                                                isRefreshing = false
+                                                rotation = 270f
                                             }
                                         },
-                                        contentPadding = PaddingValues(),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                                        shape = RoundedCornerShape(50),
                                         modifier = Modifier
-                                            .fillMaxWidth(0.6f)
-                                            .height(50.dp)
+                                            .size(480.dp)
+                                            .graphicsLayer { rotationZ = 90f }
+                                    )
+                                    LaunchedEffect(Unit) { isRefreshing = false }
+                                }
+                            }
+
+                            else {
+                                // ❌ Friendly Offline Screen (Centered & Responsive)
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(12.dp)
+                                        .padding(bottom = 42.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth(0.95f) // responsive max width
+                                            .wrapContentHeight()
                                     ) {
-                                        Box(
+                                        Icon(
+                                            imageVector = Icons.Default.CloudOff,
+                                            contentDescription = "Pi Offline",
+                                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                                            modifier = Modifier.size(90.dp)
+                                        )
+
+                                        Text(
+                                            text = "Unable to connect to Raspberry Pi",
+                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 18.sp
+                                            ),
+                                            textAlign = TextAlign.Center,
+                                            color = MaterialTheme.colorScheme.onBackground
+                                        )
+
+                                        Text(
+                                            text = "Your Pi might be offline or server is not available.\n" +
+                                                    "Make sure it's running and try again.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            textAlign = TextAlign.Center,
+                                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                                            modifier = Modifier.padding(horizontal = 4.dp)
+                                        )
+
+                                        Spacer(modifier = Modifier.height(16.dp))
+
+                                        Button(
+                                            onClick = {
+                                                isRefreshing = true
+                                                reloadKey++   // reload WebView
+                                                piStatusManager.startMonitoring()
+
+                                                scope.launch {
+                                                    delay(3000)
+                                                    isRefreshing = false
+                                                }
+                                            },
+                                            contentPadding = PaddingValues(),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                                            shape = RoundedCornerShape(50),
                                             modifier = Modifier
-                                                .background(
-                                                    brush = Brush.linearGradient(
-                                                        colors = listOf(Color(0xFF5DCCFC), Color(0xFF007EF2))
-                                                    ),
-                                                    shape = RoundedCornerShape(50)
-                                                )
-                                                .fillMaxSize(),
-                                            contentAlignment = Alignment.Center
+                                                .fillMaxWidth()
+                                                .height(50.dp)
                                         ) {
-                                            if (isRefreshing) {
-                                                CircularProgressIndicator(
-                                                    color = Color.White,
-                                                    strokeWidth = 2.dp,
-                                                    modifier = Modifier.size(22.dp)
-                                                )
-                                            } else {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.Center
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Replay,
-                                                        contentDescription = "Retry",
-                                                        tint = Color.White,
-                                                        modifier = Modifier.size(18.dp)
+                                            Box(
+                                                modifier = Modifier
+                                                    .background(
+                                                        brush = Brush.linearGradient(
+                                                            colors = listOf(Color(0xFF5DCCFC), Color(0xFF007EF2))
+                                                        ),
+                                                        shape = RoundedCornerShape(50)
                                                     )
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    Text(
-                                                        text = "Reconnect Pi",
+                                                    .fillMaxSize(),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                if (isRefreshing) {
+                                                    CircularProgressIndicator(
                                                         color = Color.White,
-                                                        fontSize = 15.sp,
-                                                        fontWeight = FontWeight.Medium
+                                                        strokeWidth = 2.dp,
+                                                        modifier = Modifier.size(22.dp)
                                                     )
+                                                } else {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.Center
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Replay,
+                                                            contentDescription = "Retry",
+                                                            tint = Color.White,
+                                                            modifier = Modifier.size(18.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.width(8.dp))
+                                                        Text(
+                                                            text = "Reconnect Pi",
+                                                            color = Color.White,
+                                                            fontSize = 15.sp,
+                                                            fontWeight = FontWeight.Medium
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
@@ -1021,9 +1054,11 @@ fun ScanScreen(
 
             }
 
-            if (scanResult != null) {
-                val diagnosisText = remember(scanResult) {
-                    val text = scanResult!!.trim()
+            val currentScanResult = scanResult // ✅ copy to local variable
+
+            if (currentScanResult != null && currentScanResult.isNotBlank()) {
+                val diagnosisText = remember(currentScanResult) {
+                    val text = currentScanResult.trim()
                     when {
                         text.contains("no infection", ignoreCase = true) -> {
                             "✅ No infection detected.\nYour fish appear healthy."
@@ -1035,7 +1070,7 @@ fun ScanScreen(
                             "❌ Error:\n$text"
                         }
                         else -> {
-                            "⚠️ Possible infection detected:\n$text\nPlease consult your veterinarian."
+                            "⚠️ Possible infection detected:\n$text\n"
                         }
                     }
                 }
@@ -1043,15 +1078,8 @@ fun ScanScreen(
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(
-                            start = 20.dp,
-                            end = 20.dp,
-                            bottom = 205.dp
-                        )
-                        .background(
-                            Color(0xAA000000),
-                            shape = RoundedCornerShape(12.dp)
-                        )
+                        .padding(start = 20.dp, end = 20.dp, bottom = 205.dp)
+                        .background(Color(0xAA000000), shape = RoundedCornerShape(12.dp))
                         .padding(16.dp)
                 ) {
                     Text(
@@ -1063,6 +1091,7 @@ fun ScanScreen(
                     )
                 }
             }
+
 
 
 

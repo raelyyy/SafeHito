@@ -4,9 +4,11 @@ import android.content.Context
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.capstone.safehito.R
+import com.capstone.safehito.service.MyFirebaseMessagingService
 import com.google.firebase.database.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import android.util.Log
 
 class WaterStatusManager(private val context: Context, private val userId: String) {
 
@@ -141,28 +143,41 @@ class WaterStatusManager(private val context: Context, private val userId: Strin
 
 
     private fun saveNotification(message: String) {
+        val lowerMsg = message.lowercase()
+        
+        // Define important notification keywords for water quality
+        val importantWaterKeywords = listOf(
+            "critical", "emergency", "warning", "dangerous", "severe"
+        )
+        
+        val isImportant = importantWaterKeywords.any { it in lowerMsg }
+        
+        // Only create notifications for important water quality events
+        if (!isImportant) {
+            Log.d("WaterStatusManager", "Skipping non-important water notification: $message")
+            return
+        }
+        
         val notificationId = notificationsRef.push().key ?: return
         val timestamp = System.currentTimeMillis()
         val notification = mapOf(
             "id" to notificationId,
             "message" to message,
             "time" to timestamp,
-            "read" to false
+            "read" to false,
+            "important" to isImportant
         )
         notificationsRef.child(notificationId).setValue(notification)
-        showLocalPushNotification(message)
-    }
-
-    private fun showLocalPushNotification(message: String) {
-        val builder = NotificationCompat.Builder(context, "my_channel")
-            .setSmallIcon(R.drawable.ic_notification) // Replace with your real icon
-            .setContentTitle("SafeHito Alert")
-            .setContentText(message)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-
-        NotificationManagerCompat.from(context)
-            .notify(System.currentTimeMillis().toInt(), builder.build())
+        
+        // Show local push notification for important water quality alerts
+        if (isImportant) {
+            MyFirebaseMessagingService.showLocalNotification(
+                context,
+                "Water Quality Alert",
+                message,
+                true
+            )
+        }
     }
 
 }

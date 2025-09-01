@@ -556,7 +556,7 @@ fun AdminScanCard(record: AdminRecord, recordKey: String, darkTheme: Boolean) {
             shortDescription = "Cotton-like fungal growth on skin or fins."
         )
         record.result.contains("whitepatch", ignoreCase = true) -> DiagnosisDetails(
-            scientificName = "Possible early fungal lesion",
+            scientificName = "Possible early fungal infection",
             shortDescription = "Flat white patches that may indicate early fungal infection."
         )
         record.result.contains("reddish", ignoreCase = true) -> DiagnosisDetails(

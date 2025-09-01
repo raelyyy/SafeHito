@@ -64,7 +64,8 @@ class MainActivity : ComponentActivity() {
             window.isNavigationBarContrastEnforced = false
         }
 
-        createNotificationChannel()
+        // Initialize notification channel
+        com.capstone.safehito.service.MyFirebaseMessagingService.createNotificationChannel(this)
 
         val user = FirebaseAuth.getInstance().currentUser
         val userId = user?.uid
@@ -169,21 +170,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-        }
-    }
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                "my_channel",
-                "SafeHito Alerts",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Alerts for water quality and infection warnings"
-            }
-
-            val manager = getSystemService(NotificationManager::class.java)
-            manager?.createNotificationChannel(channel)
         }
     }
 }

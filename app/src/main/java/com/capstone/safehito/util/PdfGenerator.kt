@@ -88,7 +88,7 @@ suspend fun generateMedicalPDF(context: Context, record: com.capstone.safehito.u
     // ===== DIAGNOSIS DETAILS =====
     val (scientificName, description) = when {
         record.result.contains("cotton", true) -> "Saprolegnia spp." to "Cotton-like fungal growth on skin or fins."
-        record.result.contains("whitepatch", true) -> "Possible early fungal lesion" to "Flat white patches that may indicate fungal infection."
+        record.result.contains("whitepatch", true) -> "Possible early fungal infection" to "Flat white patches that may indicate fungal infection."
         record.result.contains("reddish", true) -> "Possible secondary infection" to "Reddish areas from irritation or bacterial co-infection."
         record.result.contains("ulcer", true) -> "Skin ulcer / necrotic lesion" to "Open sores often linked to advanced fungal or bacterial infection."
         record.result.contains("fungal", true) -> "Various fungal species" to "General fungal infection signs."

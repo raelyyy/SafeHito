@@ -181,7 +181,7 @@ fun ScanCard(record: Record, recordKey: String, darkTheme: Boolean) {
             shortDescription = "Cotton-like fungal growth on skin or fins."
         )
         record.result.contains("whitepatch", ignoreCase = true) -> DiagnosisDetails(
-            scientificName = "Possible early fungal lesion",
+            scientificName = "Possible early fungal infection",
             shortDescription = "Flat white patches that may indicate early fungal infection."
         )
         record.result.contains("reddish", ignoreCase = true) -> DiagnosisDetails(
@@ -976,9 +976,15 @@ fun RecordsScreen(
     LaunchedEffect(uid) {
         db.getReference("notifications/$uid").addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                hasUnread = snapshot.children.any {
-                    it.child("read").getValue(Boolean::class.java) == false
+                hasUnread = snapshot.children.any { child ->
+                    val message = child.child("message").getValue(String::class.java)
+                    val time = child.child("time").getValue(Long::class.java)
+                    val isRead = child.child("read").getValue(Boolean::class.java)
+
+                    // Only valid notifications with a message + time can count
+                    !message.isNullOrBlank() && time != null && isRead == false
                 }
+
             }
 
             override fun onCancelled(error: DatabaseError) {}

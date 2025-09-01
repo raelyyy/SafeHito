@@ -411,6 +411,7 @@ fun DashboardScreen(
     }
 
 
+
     var hasUnread by remember { mutableStateOf(false) }
 
     LaunchedEffect(uid) {
@@ -418,9 +419,15 @@ fun DashboardScreen(
             val notifRef = FirebaseDatabase.getInstance().getReference("notifications/$uid")
             notifRef.addValueEventListener(object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
-                    hasUnread = snapshot.children.any {
-                        it.child("read").getValue(Boolean::class.java) == false
+                    hasUnread = snapshot.children.any { child ->
+                        val message = child.child("message").getValue(String::class.java)
+                        val time = child.child("time").getValue(Long::class.java)
+                        val isRead = child.child("read").getValue(Boolean::class.java)
+
+                        // Only valid notifications with a message + time can count
+                        !message.isNullOrBlank() && time != null && isRead == false
                     }
+
                 }
                 override fun onCancelled(error: DatabaseError) {}
             })

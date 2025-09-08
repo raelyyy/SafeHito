@@ -66,26 +66,40 @@ class WaterDataViewModel : ViewModel() {
         
         waterDataListener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                val phVal = snapshot.child("ph").getValue(Double::class.java) ?: 0.0
-                val tempVal = snapshot.child("temperature").getValue(Double::class.java) ?: 0.0
-                val turbidityVal = snapshot.child("turbidity").getValue(Double::class.java) ?: 0.0
-                val oxygenVal = snapshot.child("oxygen").getValue(Double::class.java) ?: 0.0
-                val levelVal = snapshot.child("waterLevel").getValue(Double::class.java) ?: 0.0
+                val phVal = snapshot.readDoubleFlexible("ph")
+                val tempVal = snapshot.readDoubleFlexible("temperature")
+                val turbidityVal = snapshot.readDoubleFlexible("turbidity")
+                val oxygenVal = snapshot.readDoubleFlexible("oxygen")
+                val levelVal = snapshot.readDoubleFlexible("waterLevel")
 
                 viewModelScope.launch {
-                    _ph.emit(phVal.toString())
-                    _temperature.emit(tempVal.toString())
-                    _turbidity.emit(turbidityVal.toString())
-                    _dissolvedOxygen.emit(oxygenVal.toString())
-                    _waterLevel.emit(levelVal.toString())
+                    _ph.emit(formatForUi(phVal))
+                    _temperature.emit(formatForUi(tempVal))
+                    _turbidity.emit(formatForUi(turbidityVal))
+                    _dissolvedOxygen.emit(formatForUi(oxygenVal))
+                    _waterLevel.emit(formatForUi(levelVal))
 
-                    _phHistory.emit((_phHistory.value + phVal.toFloat()).takeLast(20))
-                    _temperatureHistory.emit((_temperatureHistory.value + tempVal.toFloat()).takeLast(20))
-                    _turbidityHistory.emit((_turbidityHistory.value + turbidityVal.toFloat()).takeLast(20))
-                    _oxygenHistory.emit((_oxygenHistory.value + oxygenVal.toFloat()).takeLast(20))
-                    _waterLevelHistory.emit((_waterLevelHistory.value + levelVal.toFloat()).takeLast(20))
+                    if (phVal.isFiniteSafe()) {
+                        _phHistory.emit((_phHistory.value + phVal.toFloat()).takeLast(20))
+                    }
+                    if (tempVal.isFiniteSafe()) {
+                        _temperatureHistory.emit((_temperatureHistory.value + tempVal.toFloat()).takeLast(20))
+                    }
+                    if (turbidityVal.isFiniteSafe()) {
+                        _turbidityHistory.emit((_turbidityHistory.value + turbidityVal.toFloat()).takeLast(20))
+                    }
+                    if (oxygenVal.isFiniteSafe()) {
+                        _oxygenHistory.emit((_oxygenHistory.value + oxygenVal.toFloat()).takeLast(20))
+                    }
+                    if (levelVal.isFiniteSafe()) {
+                        _waterLevelHistory.emit((_waterLevelHistory.value + levelVal.toFloat()).takeLast(20))
+                    }
 
-                    evaluateWaterStatus(phVal, tempVal, turbidityVal, oxygenVal, levelVal)
+                    if (listOf(phVal, tempVal, turbidityVal, oxygenVal, levelVal).all { it.isFiniteSafe() }) {
+                        evaluateWaterStatus(phVal, tempVal, turbidityVal, oxygenVal, levelVal)
+                    } else {
+                        Log.w("WaterViewModel", "Skipping status evaluation due to invalid value(s): ph=$phVal, temp=$tempVal, turbidity=$turbidityVal, oxygen=$oxygenVal, level=$levelVal")
+                    }
                 }
 
             }
@@ -203,3 +217,23 @@ class WaterDataViewModel : ViewModel() {
 
 
 }
+
+// region Helpers
+private fun DataSnapshot.readDoubleFlexible(key: String): Double {
+    val node = this.child(key)
+    val raw = node.getValue(Any::class.java)
+    return when (raw) {
+        is Number -> raw.toDouble()
+        is String -> raw.toDoubleOrNull() ?: Double.NaN
+        else -> Double.NaN
+    }
+}
+
+private fun Double.isFiniteSafe(): Boolean {
+    return !this.isNaN() && this != Double.POSITIVE_INFINITY && this != Double.NEGATIVE_INFINITY
+}
+
+private fun formatForUi(value: Double): String {
+    return if (value.isFiniteSafe()) String.format("%.2f", value) else "--"
+}
+// endregion

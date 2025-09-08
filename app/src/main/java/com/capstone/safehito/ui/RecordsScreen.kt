@@ -87,6 +87,9 @@ import okhttp3.Response
 import java.io.IOException
 import java.text.SimpleDateFormat
 import android.util.Log
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
+import com.capstone.safehito.R
 import com.google.accompanist.swiperefresh.SwipeRefresh
 import com.google.accompanist.swiperefresh.rememberSwipeRefreshState
 import com.google.accompanist.swiperefresh.SwipeRefreshIndicator
@@ -1057,11 +1060,10 @@ fun RecordsScreen(
                                     ),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Notifications,
+                                Image(
+                                    painter = painterResource(id = R.drawable.ic_notifbell),
                                     contentDescription = "Notification",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                                 if (hasUnread) {
                                     Box(

@@ -32,8 +32,10 @@ import com.capstone.safehito.ui.components.TermsOfServiceModal
 import com.capstone.safehito.ui.components.PrivacyPolicyModal
 import com.google.accompanist.systemuicontroller.rememberSystemUiController
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
@@ -129,12 +131,17 @@ fun LoginScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(Color.Transparent)
+                        .widthIn(max = 400.dp) // ✅ max width for large screens
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(24.dp)
+                        modifier = Modifier
+                            .padding(24.dp)
+                            .verticalScroll(rememberScrollState()) // ✅ make scrollable
+                            .fillMaxWidth()
+                            .widthIn(max = 400.dp) // ✅ keep good width on tablets
                     ) {
-                        Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(12.dp))
 
                         Box(
                             modifier = Modifier
@@ -151,7 +158,7 @@ fun LoginScreen(
                             )
                         }
 
-                        Spacer(Modifier.height(18.dp))
+                        Spacer(Modifier.heightIn(min = 12.dp, max = 24.dp)) // ✅ more flexible
 
                         Text(
                             text = "Welcome to SafeHito",

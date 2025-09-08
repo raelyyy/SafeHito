@@ -52,48 +52,50 @@ class PiStatusManager {
         .build()
 
     // in PiStatusManager
-    fun startMonitoring() {
+    fun startMonitoring(preferredMode: String = "auto") {
         stopMonitoring()
 
-        // Listen for LAN IP first
-        ipListener = object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                val ip = snapshot.getValue(String::class.java)
-                if (!ip.isNullOrEmpty()) {
-                    val lanUrl = "http://$ip:5000"
-                    Log.d("PiStatusManager", "✅ Using LAN IP: $lanUrl")
-                    _piStatus.value = _piStatus.value.copy(
-                        ipAddress = ip,
-                        serverUrl = lanUrl
-                    )
-                    startConnectionMonitoring(lanUrl)
-                }
-            }
-            override fun onCancelled(error: DatabaseError) {}
-        }
-        database.getReference("raspberry_pi/local_ip")
-            .addValueEventListener(ipListener!!)
+        val useLan = preferredMode == "lan" || preferredMode == "auto"
+        val useCloudflare = preferredMode == "cloudflare" || preferredMode == "auto"
 
-        // Only fallback to Cloudflare if LAN missing
-        cloudflareListener = object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                val url = snapshot.getValue(String::class.java)
-                if (!url.isNullOrEmpty() && _piStatus.value.ipAddress.isNullOrEmpty()) {
-                    Log.d("PiStatusManager", "⚠️ Falling back to Cloudflare: $url")
-                    _piStatus.value = _piStatus.value.copy(
-                        cloudflareUrl = url,
-                        serverUrl = url
-                    )
-                    startConnectionMonitoring(url)
+        if (useLan) {
+            ipListener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val ip = snapshot.getValue(String::class.java)
+                    if (!ip.isNullOrEmpty()) {
+                        val lanUrl = "http://$ip:5000"
+                        _piStatus.value = _piStatus.value.copy(
+                            ipAddress = ip,
+                            serverUrl = lanUrl
+                        )
+                        startConnectionMonitoring(lanUrl)
+                    }
                 }
+                override fun onCancelled(error: DatabaseError) {}
             }
-            override fun onCancelled(error: DatabaseError) {}
+            piIpRef.addValueEventListener(ipListener!!)
         }
-        database.getReference("raspberry_pi/cloudflare_url")
-            .addValueEventListener(cloudflareListener!!)
+
+        if (useCloudflare) {
+            cloudflareListener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val url = snapshot.getValue(String::class.java)
+                    if (!url.isNullOrEmpty() && (!useLan || _piStatus.value.ipAddress.isNullOrEmpty())) {
+                        _piStatus.value = _piStatus.value.copy(
+                            cloudflareUrl = url,
+                            serverUrl = url
+                        )
+                        startConnectionMonitoring(url)
+                    }
+                }
+                override fun onCancelled(error: DatabaseError) {}
+            }
+            piCloudflareRef.addValueEventListener(cloudflareListener!!)
+        }
 
         startHeartbeat()
     }
+
 
 
 

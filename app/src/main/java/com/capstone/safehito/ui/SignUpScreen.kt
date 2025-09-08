@@ -7,10 +7,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -117,11 +119,17 @@ fun SignUpScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(Color.Transparent)
+                        .widthIn(max = 400.dp)
                 ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(24.dp)
-                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .padding(24.dp)
+                            .verticalScroll(rememberScrollState()) // ✅ scroll if small screen/keyboard open
+                            .fillMaxWidth()
+                            .widthIn(max = 400.dp) // ✅ prevent stretching on tablets
+                    ) {
+
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Box(
@@ -139,9 +147,10 @@ fun SignUpScreen(
                         )
                     }
 
-                    Spacer(Modifier.height(18.dp))
+                        Spacer(modifier = Modifier.heightIn(min = 12.dp, max = 24.dp)) // ✅ adjusts better
 
-                    Text("Create Account", style = MaterialTheme.typography.headlineSmall)
+
+                        Text("Create Account", style = MaterialTheme.typography.headlineSmall)
                     Text(
                         "Sign up to continue using SafeHito.",
                         style = MaterialTheme.typography.bodyMedium,

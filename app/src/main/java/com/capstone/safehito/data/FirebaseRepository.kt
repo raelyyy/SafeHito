@@ -26,8 +26,8 @@ class FirebaseRepository {
         return when (rawValue) {
             is Double -> rawValue.toString()
             is Long -> rawValue.toDouble().toString() // Firebase might store numbers as Long
-            is String -> rawValue.toDoubleOrNull()?.toString() ?: "N/A"
-            else -> "N/A"
+            is String -> rawValue.toDoubleOrNull()?.toString() ?: "--"
+            else -> "--"
         }
     }
 
@@ -39,7 +39,7 @@ class FirebaseRepository {
             }
             override fun onCancelled(error: DatabaseError) {
                 Log.e("FirebaseRepository", "Failed to get ph: ${error.message}")
-                trySend("N/A")
+                trySend("--")
             }
         }
         dbRef.child("ph").addValueEventListener(listener)
@@ -54,7 +54,7 @@ class FirebaseRepository {
             }
             override fun onCancelled(error: DatabaseError) {
                 Log.e("FirebaseRepository", "Failed to get temperature: ${error.message}")
-                trySend("N/A")
+                trySend("--")
             }
         }
         dbRef.child("temperature").addValueEventListener(listener)
@@ -69,7 +69,7 @@ class FirebaseRepository {
             }
             override fun onCancelled(error: DatabaseError) {
                 Log.e("FirebaseRepository", "Failed to get turbidity: ${error.message}")
-                trySend("N/A")
+                trySend("--")
             }
         }
         dbRef.child("turbidity").addValueEventListener(listener)
@@ -84,7 +84,7 @@ class FirebaseRepository {
             }
             override fun onCancelled(error: DatabaseError) {
                 Log.e("FirebaseRepository", "Failed to get oxygen: ${error.message}")
-                trySend("N/A")
+                trySend("--")
             }
         }
         dbRef.child("oxygen").addValueEventListener(listener)
@@ -100,7 +100,7 @@ class FirebaseRepository {
 
             override fun onCancelled(error: DatabaseError) {
                 Log.e("FirebaseRepository", "Failed to get waterLevel: ${error.message}")
-                trySend("N/A")
+                trySend("--")
             }
         }
         dbRef.child("waterLevel").addValueEventListener(listener)
@@ -112,12 +112,12 @@ class FirebaseRepository {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val waterStatus = snapshot.getValue(String::class.java)
                 Log.d("FirebaseRepository", "Water Status: $waterStatus")
-                trySend(waterStatus ?: "N/A")
+                trySend(waterStatus ?: "--")
             }
 
             override fun onCancelled(error: DatabaseError) {
                 Log.e("FirebaseRepository", "Failed to get waterStatus: ${error.message}")
-                trySend("N/A")
+                trySend("--")
             }
         }
         dbRef.child("waterStatus").addValueEventListener(listener)
@@ -129,12 +129,12 @@ class FirebaseRepository {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val fishStatus = snapshot.getValue(String::class.java)
                 Log.d("FirebaseRepository", "Fish Status: $fishStatus")
-                trySend(fishStatus ?: "N/A")
+                trySend(fishStatus ?: "--")
             }
 
             override fun onCancelled(error: DatabaseError) {
                 Log.e("FirebaseRepository", "Failed to get fishStatus: ${error.message}")
-                trySend("N/A")
+                trySend("--")
             }
         }
         dbRef.child("fishStatus").addValueEventListener(listener)

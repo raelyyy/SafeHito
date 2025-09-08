@@ -37,6 +37,11 @@ class NotificationViewModel(private val uid: String) : ViewModel() {
     private var lastFishInfectionMessage: String? = null
     private var lastFishInfectionTime: Long = 0L
 
+    // In-app dedup and rate limit
+    private val dedupWindowMs = 30 * 60 * 1000L // 30 minutes for identical important message
+    private val globalCooldownMs = 60 * 1000L // 60 seconds between created notifications
+    private var lastAnyCreateTime: Long = 0L
+
     val unreadCount = notifications
         .map { list -> list.count { !it.read } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
@@ -106,10 +111,11 @@ class NotificationViewModel(private val uid: String) : ViewModel() {
                         showPushNotificationForImportantNotification(notification)
                     }
 
+                    // Show latest per unique message to avoid spamming the list with repeats
                     _notifications.value = notifList
-                        .filter { it.message.isNotBlank() } // ✅ skip no-message ones
-                        .distinctBy { it.id }
+                        .filter { it.message.isNotBlank() }
                         .sortedByDescending { it.time }
+                        .distinctBy { it.message.trim().lowercase() }
                 }
             }
 
@@ -213,23 +219,49 @@ class NotificationViewModel(private val uid: String) : ViewModel() {
             return
         }
 
-        // ✅ existing duplicate prevention logic applies here
+        // Global cooldown to avoid bursts
+        if (now - lastAnyCreateTime < globalCooldownMs) {
+            Log.d("NotificationViewModel", "Global cooldown active, skipping create: $trimmedMessage")
+            return
+        }
 
-        val newRef = notifRef.push()
-        val notif = mapOf(
-            "id" to newRef.key,
-            "message" to trimmedMessage,
-            "time" to now,
-            "read" to false,
-            "important" to isImportant
-        )
-        newRef.setValue(notif)
-            .addOnSuccessListener {
-                Log.d("NotificationViewModel", "Important notification created successfully.")
+        // Check recent duplicates with same message in Firebase within window
+        val windowStart = now - dedupWindowMs
+        notifRef.get().addOnSuccessListener { snapshot ->
+            val hasRecentDuplicate = snapshot.children.any { child ->
+                val msg = child.child("message").getValue(String::class.java)?.trim()?.lowercase()
+                val time = when (val value = child.child("time").value) {
+                    is Long -> value
+                    is String -> value.toLongOrNull() ?: 0L
+                    else -> 0L
+                }
+                msg == lowerMsg && time >= windowStart
             }
-            .addOnFailureListener {
-                Log.e("NotificationViewModel", "Failed to create notification: ${it.message}")
+
+            if (hasRecentDuplicate) {
+                Log.d("NotificationViewModel", "Duplicate important message within window, skipping create: $trimmedMessage")
+                return@addOnSuccessListener
             }
+
+            val newRef = notifRef.push()
+            val notif = mapOf(
+                "id" to newRef.key,
+                "message" to trimmedMessage,
+                "time" to now,
+                "read" to false,
+                "important" to isImportant
+            )
+            newRef.setValue(notif)
+                .addOnSuccessListener {
+                    lastAnyCreateTime = now
+                    Log.d("NotificationViewModel", "Important notification created successfully.")
+                }
+                .addOnFailureListener {
+                    Log.e("NotificationViewModel", "Failed to create notification: ${it.message}")
+                }
+        }.addOnFailureListener {
+            Log.e("NotificationViewModel", "Failed to check duplicates: ${it.message}")
+        }
     }
 
 

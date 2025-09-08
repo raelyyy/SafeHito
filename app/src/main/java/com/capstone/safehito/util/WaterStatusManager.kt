@@ -9,6 +9,7 @@ import com.google.firebase.database.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import android.util.Log
+import com.google.firebase.database.DataSnapshot
 
 class WaterStatusManager(private val context: Context, private val userId: String) {
 
@@ -25,11 +26,16 @@ class WaterStatusManager(private val context: Context, private val userId: Strin
     fun startMonitoring() {
         waterDataRef.addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                val ph = snapshot.child("ph").getValue(Double::class.java) ?: return
-                val temperature = snapshot.child("temperature").getValue(Double::class.java) ?: return
-                val oxygen = snapshot.child("oxygen").getValue(Double::class.java) ?: return
-                val turbidity = snapshot.child("turbidity").getValue(Double::class.java) ?: return
-                val waterLevel = snapshot.child("waterLevel").getValue(Double::class.java) ?: return
+                val ph = snapshot.readDoubleFlexible("ph")
+                val temperature = snapshot.readDoubleFlexible("temperature")
+                val oxygen = snapshot.readDoubleFlexible("oxygen")
+                val turbidity = snapshot.readDoubleFlexible("turbidity")
+                val waterLevel = snapshot.readDoubleFlexible("waterLevel")
+
+                if (listOf(ph, temperature, oxygen, turbidity, waterLevel).any { !it.isFiniteSafe() }) {
+                    Log.w("WaterStatusManager", "Invalid water data; skipping evaluation. ph=$ph temp=$temperature oxy=$oxygen turb=$turbidity lvl=$waterLevel")
+                    return
+                }
 
                 val (newStatus, triggeredParams, paramStates) = evaluateWaterStatusWithDetails(
                     ph, temperature, oxygen, turbidity, waterLevel
@@ -43,12 +49,12 @@ class WaterStatusManager(private val context: Context, private val userId: Strin
                     waterStatusRef.setValue(newStatus)
                 }
 
-                // 🔔 PUSH NOTIFICATION LOGIC
-                if ((newStatus != lastStatus && newStatus != "Normal") || newlyTriggered.isNotEmpty()) {
+                // 🔔 PUSH NOTIFICATION LOGIC - Only for Warning status to reduce spam
+                if (newStatus != lastStatus && newStatus == "Warning") {
                     val msg = if (newlyTriggered.isNotEmpty()) {
-                        "Water status changed to $newStatus due to: ${newlyTriggered.joinToString(", ")}."
+                        "Water quality WARNING: ${newlyTriggered.joinToString(", ")}."
                     } else {
-                        "Water status changed to $newStatus."
+                        "Water quality WARNING detected."
                     }
                     saveNotification(msg)
                 }
@@ -68,9 +74,10 @@ class WaterStatusManager(private val context: Context, private val userId: Strin
                     } else null
                 }
 
+                // Remove resolved parameter notifications to reduce spam
+                // Only log to debug instead of creating notifications
                 if (confirmedResolved.isNotEmpty() && newStatus == "Normal") {
-                    val msg = "Water parameters back to normal: ${confirmedResolved.joinToString(", ")}."
-                    saveNotification(msg)
+                    Log.d("WaterStatusManager", "Water parameters back to normal: ${confirmedResolved.joinToString(", ")}")
                 }
 
                 lastStatus = newStatus
@@ -181,3 +188,19 @@ class WaterStatusManager(private val context: Context, private val userId: Strin
     }
 
 }
+
+// region Helpers (duplicate-safe, local)
+private fun DataSnapshot.readDoubleFlexible(key: String): Double {
+    val node = this.child(key)
+    val raw = node.getValue(Any::class.java)
+    return when (raw) {
+        is Number -> raw.toDouble()
+        is String -> raw.toDoubleOrNull() ?: Double.NaN
+        else -> Double.NaN
+    }
+}
+
+private fun Double.isFiniteSafe(): Boolean {
+    return !this.isNaN() && this != Double.POSITIVE_INFINITY && this != Double.NEGATIVE_INFINITY
+}
+// endregion

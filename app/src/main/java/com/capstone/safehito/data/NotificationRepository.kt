@@ -22,15 +22,17 @@ class NotificationRepository {
                         else -> 0L
                     }
 
-                    if (waterStatus == "Warning" || waterStatus == "Caution") {
+                    // Only create notifications for Warning status to reduce spam
+                    if (waterStatus == "Warning") {
                         val id = child.key ?: time.toString()  // Fallback to time if no key
-                        val message = "Water status is $waterStatus"
+                        val message = "Water quality WARNING detected"
                         notifications.add(
                             Notification(
                                 id = id,
                                 message = message,
                                 time = time,
-                                read = false
+                                read = false,
+                                important = true
                             )
                         )
                     }

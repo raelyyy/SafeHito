@@ -292,11 +292,10 @@ fun ProfileScreen(
                                     .background(if (darkTheme) Color(0xFF1E1E1E) else Color.White, CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Edit,
+                                Image(
+                                    painter = painterResource(id = R.drawable.ic_edit),
                                     contentDescription = "Edit Profile",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                         }
@@ -314,11 +313,10 @@ fun ProfileScreen(
                                     .background(if (darkTheme) Color(0xFF1E1E1E) else Color.White, CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Settings,
+                                Image(
+                                    painter = painterResource(id = R.drawable.ic_settings),
                                     contentDescription = "Settings",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                         }

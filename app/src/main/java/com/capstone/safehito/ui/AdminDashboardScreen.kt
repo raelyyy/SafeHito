@@ -805,11 +805,10 @@ fun AdminDashboardScreen(
                                     .background(if (darkTheme) Color(0xFF1E1E1E) else Color.White, shape = CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Notifications,
+                                Image(
+                                    painter = painterResource(id = R.drawable.ic_notifbell),
                                     contentDescription = "Notification",
-                                    tint = Color(0xFF5DCCFC),
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                                 if (hasUnread) {
                                     Box(

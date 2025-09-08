@@ -14,8 +14,13 @@ import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
@@ -45,10 +50,12 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ControlPointDuplicate
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Warning
@@ -56,20 +63,25 @@ import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.FitScreen
 import androidx.compose.material.icons.outlined.Pets
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.times
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.coordinatorlayout.widget.CoordinatorLayout.Behavior.getTag
 import androidx.coordinatorlayout.widget.CoordinatorLayout.Behavior.setTag
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavHostController
 import androidx.room.vo.Warning
+
 import coil.compose.AsyncImage
 import com.capstone.safehito.R
 import com.capstone.safehito.viewmodel.NotificationViewModel
@@ -101,7 +113,7 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
-
+import kotlin.io.path.moveTo
 
 
 interface PiApi {
@@ -259,10 +271,7 @@ fun ScanScreen(
         )
     }
 
-    // Start Pi Status monitoring
-    LaunchedEffect(Unit) {
-        piStatusManager.startMonitoring()
-    }
+
 
     // Clean up when component is destroyed
     DisposableEffect(Unit) {
@@ -301,7 +310,7 @@ fun ScanScreen(
     var scanResult by remember { mutableStateOf<String?>(null) }
     var showLivePreview by remember { mutableStateOf(true) }
     var isLoading by remember { mutableStateOf(false) }
-    var usePiCamera by remember { mutableStateOf(false) }
+    var usePiCamera by remember { mutableStateOf(true) }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var cameraActive by remember { mutableStateOf(true) }
     var localImagePath by remember { mutableStateOf<String?>(null) }
@@ -320,34 +329,47 @@ fun ScanScreen(
 
     var serverUrl by remember { mutableStateOf("") }
 
-    LaunchedEffect(Unit) {
-        val dbRef = FirebaseDatabase.getInstance().getReference("raspberry_pi")
+    var connectionMode by remember { mutableStateOf("auto") } // default
 
-        dbRef.addValueEventListener(object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                val localIp = snapshot.child("local_ip").getValue(String::class.java)
-                val cloudflareUrl = snapshot.child("cloudflare_url").getValue(String::class.java)
-
-                serverUrl = when {
-                    !localIp.isNullOrEmpty() -> "http://$localIp:5000" // ✅ prefer LAN with port
-                    !cloudflareUrl.isNullOrEmpty() -> cloudflareUrl
-                    else -> ""
+    LaunchedEffect(uid) {
+        if (uid != null) {
+            val ref = FirebaseDatabase.getInstance().getReference("users/$uid/connectionMode")
+            ref.addValueEventListener(object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    connectionMode = snapshot.getValue(String::class.java) ?: "auto"
+                    piStatusManager.startMonitoring(connectionMode.lowercase())
                 }
-            }
-
-            override fun onCancelled(error: DatabaseError) {
-                println("Firebase error: ${error.message}")
-            }
-        })
+                override fun onCancelled(error: DatabaseError) {}
+            })
+        }
     }
-
-
 
 
     DisposableEffect(Unit) {
         onDispose {
             cameraProvider?.unbindAll()
         }
+    }
+
+    // Keep a live copy of Pi status for both camera modes
+    val piStatus by piStatusManager.piStatus.collectAsState()
+
+    // Always compute active serverUrl based on connectionMode + Pi status
+    LaunchedEffect(connectionMode, piStatus) {
+        serverUrl = when (connectionMode.lowercase()) {
+            "lan" -> if (!piStatus.ipAddress.isNullOrEmpty()) {
+                "http://${piStatus.ipAddress}:5000"
+            } else ""
+            "cloudflare" -> piStatus.cloudflareUrl ?: ""
+            else -> { // auto
+                if (!piStatus.ipAddress.isNullOrEmpty()) {
+                    "http://${piStatus.ipAddress}:5000"
+                } else {
+                    piStatus.cloudflareUrl ?: ""
+                }
+            }
+        }
+        Log.d("ScanScreen", "✅ Active serverUrl: $serverUrl (mode=$connectionMode)")
     }
 
     val cameraPermission = android.Manifest.permission.CAMERA
@@ -395,10 +417,10 @@ fun ScanScreen(
 
             scanJob = coroutineScope.launch(Dispatchers.IO) {
                 try {
-                    val currentPiStatus = piStatusManager.piStatus.value
-                    if (currentPiStatus.ipAddress == null || uidBody == null) {
+                    // Require an active serverUrl (LAN or Cloudflare) and UID
+                    if (serverUrl.isBlank() || uidBody == null) {
                         withContext(Dispatchers.Main) {
-                            scanResult = "❌ Missing UID or Raspberry Pi IP."
+                            scanResult = "❌ Missing UID or Pi URL."
                             isLoading = false
                         }
                         return@launch
@@ -473,11 +495,10 @@ fun ScanScreen(
                                     .background(if (darkTheme) Color(0xFF1E1E1E) else Color.White, CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Notifications,
+                                Image(
+                                    painter = painterResource(id = R.drawable.ic_notifbell),
                                     contentDescription = "Notification",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                                 if (hasUnread) {
                                     Box(
@@ -546,6 +567,24 @@ fun ScanScreen(
                         var isRefreshing by remember { mutableStateOf(false) }
                         val piStatus by piStatusManager.piStatus.collectAsState()
 
+                        // 🔧 Keep serverUrl in sync with connectionMode + Pi status
+                        LaunchedEffect(connectionMode, piStatus) {
+                            serverUrl = when (connectionMode.lowercase()) {
+                                "lan" -> if (!piStatus.ipAddress.isNullOrEmpty()) {
+                                    "http://${piStatus.ipAddress}:5000"
+                                } else ""
+                                "cloudflare" -> piStatus.cloudflareUrl ?: ""
+                                else -> { // auto
+                                    if (!piStatus.ipAddress.isNullOrEmpty()) {
+                                        "http://${piStatus.ipAddress}:5000"
+                                    } else {
+                                        piStatus.cloudflareUrl ?: ""
+                                    }
+                                }
+                            }
+                            Log.d("ScanScreen", "✅ Active serverUrl: $serverUrl (mode=$connectionMode)")
+                        }
+
                         Box(
                             modifier = Modifier
                                 .then(
@@ -564,33 +603,105 @@ fun ScanScreen(
                         ) {
                             if (piStatus.isOnline) {
                                 // ✅ Prefer LAN if available
-                                val activeUrl = if (!piStatus.ipAddress.isNullOrEmpty()) {
-                                    "http://${piStatus.ipAddress}:5000"
-                                } else {
-                                    piStatus.serverUrl // fallback (Cloudflare)
+                                val activeUrl = when (connectionMode) {
+                                    "lan" -> if (!piStatus.ipAddress.isNullOrEmpty()) {
+                                        "http://${piStatus.ipAddress}:5000"
+                                    } else null
+
+                                    "cloudflare" -> piStatus.serverUrl
+
+                                    else -> { // auto (default)
+                                        if (!piStatus.ipAddress.isNullOrEmpty()) {
+                                            "http://${piStatus.ipAddress}:5000"
+                                        } else {
+                                            piStatus.serverUrl
+                                        }
+                                    }
                                 }
+
+                                var showUrl by remember { mutableStateOf(false) }
+                                val context = LocalContext.current
 
                                 if (!activeUrl.isNullOrEmpty()) {
-                                    AndroidView(
-                                        factory = { ctx ->
-                                            WebView(ctx).apply {
-                                                settings.javaScriptEnabled = true
-                                                webViewClient = WebViewClient()
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        // WebView (Pi Preview)
+                                        AndroidView(
+                                            factory = { ctx ->
+                                                WebView(ctx).apply {
+                                                    settings.javaScriptEnabled = true
+                                                    webViewClient = WebViewClient()
+                                                    val headers = mapOf("ngrok-skip-browser-warning" to "true")
+                                                    this.loadUrl("$activeUrl/live-tracking?key=$reloadKey", headers)
+                                                    rotation = 270f
+                                                }
+                                            },
+                                            modifier = Modifier
+                                                .size(480.dp)
+                                                .graphicsLayer { rotationZ = 90f }
+                                        )
 
-                                                // headers must be defined inside apply{} before loadUrl
-                                                val headers = mapOf("ngrok-skip-browser-warning" to "true")
-                                                this.loadUrl("$activeUrl/live-tracking?key=$reloadKey", headers)
+                                        // ✅ Reset refreshing state once WebView loads
+                                        LaunchedEffect(Unit) { isRefreshing = false }
 
-                                                rotation = 270f
+                                        // "More" toggle button (top-right)
+                                        IconButton(
+                                            onClick = { showUrl = !showUrl },
+                                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.MoreVert,
+                                                contentDescription = "More",
+                                                tint = Color.White
+                                            )
+                                        }
+
+                                        // Show link + copy icon if toggled
+                                        if (showUrl) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .padding(top = 48.dp, end = 12.dp) // below the More button
+                                                    .background(Color(0x66000000), RoundedCornerShape(6.dp))
+                                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                                            ) {
+                                                Text(
+                                                    text = activeUrl,
+                                                    color = Color.White,
+                                                    fontSize = 12.sp,
+                                                    modifier = Modifier.padding(end = 6.dp)
+                                                )
+                                                IconButton(
+                                                    onClick = {
+                                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                                        val clip = android.content.ClipData.newPlainText("Pi Address", activeUrl)
+                                                        clipboard.setPrimaryClip(clip)
+                                                        Toast.makeText(context, "Address copied!", Toast.LENGTH_SHORT).show()
+                                                    },
+                                                    modifier = Modifier.size(18.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.ContentCopy,
+                                                        contentDescription = "Copy",
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
                                             }
-                                        },
-                                        modifier = Modifier
-                                            .size(480.dp)
-                                            .graphicsLayer { rotationZ = 90f }
-                                    )
-                                    LaunchedEffect(Unit) { isRefreshing = false }
+                                        }
+                                    }
                                 }
+
                             }
+
+                            /*
+                            else {
+                                FlappyCatfish()
+                            }*/
+
 
                             else {
                                 // ❌ Friendly Offline Screen (Centered & Responsive)
@@ -640,7 +751,7 @@ fun ScanScreen(
                                             onClick = {
                                                 isRefreshing = true
                                                 reloadKey++   // reload WebView
-                                                piStatusManager.startMonitoring()
+                                                piStatusManager.startMonitoring(connectionMode)
 
                                                 scope.launch {
                                                     delay(3000)
@@ -846,7 +957,7 @@ fun ScanScreen(
                                         } else {
                                             val responseBody = response.body()
                                             if (response.isSuccessful && responseBody?.status == "success") {
-                                                imageUrl = responseBody.image_url
+                                                imageUrl = "$serverUrl/${responseBody.image_url?.trimStart('/')}"
                                                 scanResult = responseBody.result ?: "No result"
                                                 showLivePreview = false
                                                 cameraActive = false
@@ -1107,3 +1218,292 @@ fun ScanScreen(
     }
 }
 
+
+
+/*
+@Composable
+fun WaterBackground(isDarkMode: Boolean) {
+    val infiniteTransition = rememberInfiniteTransition(label = "bg")
+
+    // Wave animation
+    val wavePhase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 2f * Math.PI.toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(5000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "wavePhase"
+    )
+
+    // Bubble animations (just a few for simplicity)
+    val bubble1Offset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = -1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(4000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "bubble1"
+    )
+    val bubble2Offset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = -1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(4500, delayMillis = 1000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "bubble2"
+    )
+
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        // 🌊 Waves
+        val waveColor = if (isDarkMode) {
+            Color(0xFF4BA3C7).copy(alpha = 0.3f)
+        } else {
+            Color(0xFF5DCCFC).copy(alpha = 0.4f)
+        }
+
+        fun drawWave(phase: Float, amplitude: Float, baseY: Float, frequency: Float) {
+            val path = Path()
+            val step = 2f
+            path.moveTo(0f, baseY)
+            var x = 0f
+            while (x <= size.width) {
+                val angle = (x / size.width) * 2f * Math.PI.toFloat() * frequency + phase
+                val y = baseY + amplitude * kotlin.math.sin(angle).toFloat()
+                path.lineTo(x, y)
+                x += step
+            }
+            path.lineTo(size.width, size.height)
+            path.lineTo(0f, size.height)
+            path.close()
+            drawPath(path, color = waveColor)
+        }
+
+        drawWave(wavePhase, 30f, size.height * 0.7f, 1.2f)
+        drawWave(wavePhase * 0.7f, 20f, size.height * 0.8f, 0.9f)
+
+        // 🫧 Bubbles
+        val bubbleColor = if (isDarkMode) {
+            Color(0xFF4BA3C7).copy(alpha = 0.6f)
+        } else {
+            Color(0xFF5DCCFC).copy(alpha = 0.7f)
+        }
+
+        val bubble1Y = size.height * (1f + bubble1Offset)
+        if (bubble1Y < size.height) {
+            drawCircle(bubbleColor, radius = 8f, center = Offset(size.width * 0.25f, bubble1Y))
+        }
+        val bubble2Y = size.height * (1f + bubble2Offset)
+        if (bubble2Y < size.height) {
+            drawCircle(bubbleColor, radius = 10f, center = Offset(size.width * 0.7f, bubble2Y))
+        }
+    }
+}
+
+
+
+@Composable
+fun FlappyCatfish(modifier: Modifier = Modifier) {
+    val scope = rememberCoroutineScope()
+
+    // Fish Y position (0f = top, 1f = bottom)
+    val fishX = 0.5f // center of screen
+    val fishY = remember { Animatable(0.5f) }
+    var velocity by remember { mutableStateOf(0f) }
+
+    // Obstacles
+    data class Obstacle(val x: Float, val gapCenter: Float, val passed: Boolean = false)
+    var obstacles by remember { mutableStateOf(listOf<Obstacle>()) }
+
+    // State
+    var score by remember { mutableStateOf(0) }
+    var isGameOver by remember { mutableStateOf(false) }
+    var started by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+
+
+    // Physics
+    val gravity = 0.0008f
+    val flapPower = -0.015f
+    val obstacleSpeed = 0.0035f
+    val gapSize = 0.28f
+
+    BoxWithConstraints(
+        modifier = modifier.fillMaxSize()
+            .background(Color(0xFFE0F7FA))
+    ) {
+
+        val density = LocalDensity.current
+        val playWidth = maxWidth   // already Dp
+        val playHeight = maxHeight // already Dp
+
+
+        // 🎮 Game loop
+        LaunchedEffect(started, isGameOver) {
+            if (started && !isGameOver) {
+                fishY.snapTo(0.5f)
+                velocity = 0f
+                obstacles = listOf(Obstacle(1f, 0.5f))
+                score = 0
+
+                while (true) {
+                    velocity += gravity
+                    fishY.snapTo(fishY.value + velocity)
+
+                    // Move obstacles
+                    obstacles = obstacles.map { it.copy(x = it.x - obstacleSpeed) }
+
+// Add new obstacle when last one is far enough
+                    if ((obstacles.lastOrNull()?.x ?: 0f) < 0.6f) {
+                        obstacles = obstacles + Obstacle(
+                            x = 1f,
+                            gapCenter = (0.3f + Math.random().toFloat() * 0.4f)
+                        )
+                    }
+
+// Score when fish passes obstacle
+                    val fishXPos = fishX
+                    obstacles.forEachIndexed { index, obs ->
+                        if (!obs.passed && obs.x + 0.05f < fishXPos) {
+                            score++
+                            obstacles = obstacles.toMutableList().also {
+                                it[index] = it[index].copy(passed = true)
+                            }
+                        }
+                    }
+
+// Remove obstacles that are fully off-screen
+                    if (obstacles.firstOrNull()?.x ?: 0f < -0.3f) {
+                        obstacles = obstacles.drop(1)
+                    }
+
+
+                    // Collision detection
+                    val fishTop = fishY.value - 0.04f
+                    val fishBottom = fishY.value + 0.04f
+
+
+
+                    obstacles.forEach { obs ->
+                        if (obs.x < fishX + 0.05f && obs.x > fishX - 0.05f) {
+                            val gapTop = obs.gapCenter - gapSize / 2
+                            val gapBottom = obs.gapCenter + gapSize / 2
+                            if (fishTop < gapTop || fishBottom > gapBottom) {
+                                isGameOver = true
+                            }
+                        }
+                    }
+
+                    // Bounds
+                    if (fishY.value <= 0f || fishY.value >= 1f) {
+                        isGameOver = true
+                    }
+
+                    delay(16)
+                }
+            }
+        }
+
+
+
+        if (isGameOver) {
+            // ☠️ Game Over UI
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text("Game Over", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.Red)
+                Text("Score: $score", fontSize = 16.sp, color = Color.DarkGray)
+                Button(onClick = {
+                    isGameOver = false
+                    started = false
+                    obstacles = listOf()
+                    scope.launch { fishY.snapTo(0.5f) }
+                }) { Text("Restart") }
+            }
+        } else {
+            // 🐟 Gameplay Layer
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        indication = null, // ✅ no ripple
+                        interactionSource = interactionSource
+                    ) {
+                        if (!started) started = true
+                        if (!isGameOver) velocity = flapPower
+                    }
+            ) {
+                // 🐟 Fish
+                Box(
+                    modifier = Modifier
+                        .offset(
+                            x = fishX * playWidth - 20.dp,   // 20.dp = half of fish width, centers it
+                            y = fishY.value * playHeight
+                        )
+                        .size(40.dp, 28.dp)
+                        .background(Color(0xFF1976D2), RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("🐟", fontSize = 20.sp)
+                }
+
+
+// 🍄 Obstacles
+                obstacles.forEach { obs ->
+                    val gapTop = obs.gapCenter - gapSize / 2
+                    val gapBottom = obs.gapCenter + gapSize / 2
+
+                    // Top fungus
+                    Box(
+                        modifier = Modifier
+                            .offset(x = obs.x * playWidth, y = 0.dp)
+                            .width(50.dp)
+                            .height(gapTop * playHeight)
+                            .background(Color(0xFF8BC34A)),
+                        contentAlignment = Alignment.Center
+                    ) { Text("🍄", fontSize = 20.sp) }
+
+                    // Bottom fungus
+                    Box(
+                        modifier = Modifier
+                            .offset(x = obs.x * playWidth, y = gapBottom * playHeight)
+                            .width(50.dp)
+                            .height((1f - gapBottom) * playHeight)
+                            .background(Color(0xFF8BC34A)),
+                        contentAlignment = Alignment.Center
+                    ) { Text("🍄", fontSize = 20.sp) }
+                }
+
+                // HUD
+                if (started) {
+                    Text(
+                        "Score: $score",
+                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 30.dp),
+                        fontSize = 18.sp,
+                        color = Color.DarkGray,
+                        fontWeight = FontWeight.Bold
+                    )
+                } else if (!started) {
+                    Text(
+                        "Tap to Start",
+                        modifier = Modifier
+                            .offset(
+                                x = (fishX * playWidth) - 55.dp, // centered under fish
+                                y = (fishY.value * playHeight) + 50.dp
+                            ),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.DarkGray
+                    )
+                }
+
+
+            }
+        }
+    }
+}
+*/

@@ -20,6 +20,13 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         private const val CHANNEL_ID = "safehito_channel"
         private const val CHANNEL_NAME = "SafeHito Alerts"
         private const val CHANNEL_DESCRIPTION = "Important alerts and notifications from SafeHito"
+        private const val PREFS_NAME = "notification_prefs"
+        private const val KEY_LAST_IMPORTANT_HASH = "last_important_hash"
+        private const val KEY_LAST_IMPORTANT_TIME = "last_important_time"
+        private const val KEY_LAST_ANY_TIME = "last_any_time"
+        // Cooldown windows (ms)
+        private const val IMPORTANT_DEDUP_WINDOW_MS = 30 * 60 * 1000L // 30 minutes per identical message
+        private const val GLOBAL_COOLDOWN_MS = 60 * 1000L // 60 seconds between any two notifications
         
         fun createNotificationChannel(context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -95,17 +102,52 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         val body = remoteMessage.data["body"] ?: "Something happened."
         val isImportant = remoteMessage.data["important"]?.toBoolean() ?: true
 
-        // Only show important notifications
-        if (isImportant) {
-            showLocalNotification(this, title, body, isImportant)
-        } else {
+        // Only show important notifications and avoid spamming
+        if (!isImportant) {
             Log.d("NotificationService", "Skipping non-important push notification: $body")
+            return
         }
+
+        if (!shouldNotifyImportant(title, body)) {
+            Log.d("NotificationService", "Dedup/cooldown active. Skipping notification: $body")
+            return
+        }
+
+        showLocalNotification(this, title, body, isImportant)
     }
     
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         Log.d("NotificationService", "New FCM token: $token")
         // You can send this token to your server here
+    }
+
+    private fun shouldNotifyImportant(title: String, message: String): Boolean {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+
+        // Global cooldown to prevent bursts
+        val lastAnyTime = prefs.getLong(KEY_LAST_ANY_TIME, 0L)
+        if (now - lastAnyTime < GLOBAL_COOLDOWN_MS) {
+            return false
+        }
+
+        val hash = (title.trim() + "|" + message.trim()).hashCode()
+        val lastHash = prefs.getInt(KEY_LAST_IMPORTANT_HASH, Int.MIN_VALUE)
+        val lastImportantTime = prefs.getLong(KEY_LAST_IMPORTANT_TIME, 0L)
+
+        if (hash == lastHash && now - lastImportantTime < IMPORTANT_DEDUP_WINDOW_MS) {
+            // Same important message within the dedup window
+            return false
+        }
+
+        // Update state
+        prefs.edit()
+            .putInt(KEY_LAST_IMPORTANT_HASH, hash)
+            .putLong(KEY_LAST_IMPORTANT_TIME, now)
+            .putLong(KEY_LAST_ANY_TIME, now)
+            .apply()
+
+        return true
     }
 }

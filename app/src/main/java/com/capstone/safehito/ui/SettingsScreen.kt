@@ -1,6 +1,8 @@
 package com.capstone.safehito.ui
 
 import android.content.pm.PackageManager
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -25,6 +27,7 @@ import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.messaging.FirebaseMessaging
 import android.widget.Toast
+import androidx.compose.foundation.interaction.MutableInteractionSource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,6 +48,12 @@ fun SettingsScreen(
     val devsSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showSheet by remember { mutableStateOf<ModalSheetType?>(null) }
     var isPushEnabled by remember { mutableStateOf(true) }
+    
+    // Load push notification preference from SharedPreferences
+    LaunchedEffect(Unit) {
+        val prefs = context.getSharedPreferences("settings_prefs", android.content.Context.MODE_PRIVATE)
+        isPushEnabled = prefs.getBoolean("push_enabled", true)
+    }
 
     val versionName = try {
         context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0"
@@ -105,6 +114,24 @@ fun SettingsScreen(
         onDispose { ref.removeEventListener(listener) }
     }
 
+
+    var connectionMode by remember { mutableStateOf("auto") } // ✅ default auto
+
+
+    LaunchedEffect(user?.uid) {
+        if (user?.uid != null) {
+            val ref = FirebaseDatabase.getInstance().getReference("users/${user.uid}/connectionMode")
+            ref.addValueEventListener(object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    // Default to cloudflare if not set
+                    connectionMode = snapshot.getValue(String::class.java) ?: "auto"
+                }
+                override fun onCancelled(error: DatabaseError) {}
+            })
+        }
+    }
+
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -143,12 +170,27 @@ fun SettingsScreen(
                         .padding(horizontal = 20.dp, vertical = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.DarkMode, contentDescription = null, tint = iconColor, modifier = Modifier.size(24.dp))
+                    Icon(
+                        imageVector = Icons.Default.DarkMode,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurface, // ✅ adaptive color
+                        modifier = Modifier.size(24.dp)
+                    )
                     Spacer(modifier = Modifier.width(16.dp))
                     Text("Dark Mode", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                    Switch(checked = isDarkTheme, onCheckedChange = { onToggleTheme() })
+                    Switch(
+                        checked = isDarkTheme,
+                        onCheckedChange = { onToggleTheme() },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            checkedTrackColor = MaterialTheme.colorScheme.onSurface,
+                            uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            uncheckedTrackColor = MaterialTheme.colorScheme.outline
+                        )
+                    )
                 }
             }
+
 
             Card(
                 modifier = Modifier
@@ -165,7 +207,105 @@ fun SettingsScreen(
                         .padding(horizontal = 20.dp, vertical = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Schedule, contentDescription = null, tint = Color(0xFF5DCCFC), modifier = Modifier.size(24.dp))
+                    Icon(
+                        imageVector = Icons.Default.Notifications,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text("Push Notifications", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = isPushEnabled,
+                        onCheckedChange = { enabled ->
+                            isPushEnabled = enabled
+                            // Save preference to SharedPreferences
+                            val prefs = context.getSharedPreferences("settings_prefs", android.content.Context.MODE_PRIVATE)
+                            prefs.edit().putBoolean("push_enabled", enabled).apply()
+
+                            // Subscribe/unsubscribe from Firebase topics
+                            if (enabled) {
+                                FirebaseMessaging.getInstance().subscribeToTopic("all")
+                                Toast.makeText(context, "Push notifications enabled", Toast.LENGTH_SHORT).show()
+                            } else {
+                                FirebaseMessaging.getInstance().unsubscribeFromTopic("all")
+                                Toast.makeText(context, "Push notifications disabled", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            checkedTrackColor = MaterialTheme.colorScheme.onSurface,
+                            uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            uncheckedTrackColor = MaterialTheme.colorScheme.outline
+                        )
+                    )
+                }
+            }
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isDarkTheme) MaterialTheme.colorScheme.surfaceVariant else Color.White
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 20.dp, end = 0.dp, top = 16.dp, bottom = 16.dp), // ✅ reduced end padding
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Cloud,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurface, // ✅ adaptive color
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text("Pi Connection", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                    ConnectionModeDropdown(
+                        selected = connectionMode,
+                        onSelected = { mode ->
+                            connectionMode = mode
+                            if (user?.uid != null) {
+                                FirebaseDatabase.getInstance()
+                                    .getReference("users/${user.uid}/connectionMode")
+                                    .setValue(mode)
+                                    .addOnFailureListener {
+                                        Toast.makeText(context, "Failed to save preference", Toast.LENGTH_SHORT).show()
+                                    }
+                            }
+                        }
+                    )
+                }
+            }
+
+
+
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isDarkTheme) MaterialTheme.colorScheme.surfaceVariant else Color.White
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Timer,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurface, // ✅ adaptive color
+                        modifier = Modifier.size(24.dp)
+                    )
                     Spacer(modifier = Modifier.width(16.dp))
                     Text(
                         text = "Salt Bath Cooldown",
@@ -211,42 +351,12 @@ fun SettingsScreen(
                         // Non-admin: just show the value
                         Text(
                             text = cooldownOptions.find { it.first == selectedCooldown }?.second ?: "",
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
 
-            /*Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp)
-                    .clickable {
-                        isPushEnabled = !isPushEnabled
-                        if (isPushEnabled) FirebaseMessaging.getInstance().subscribeToTopic("all")
-                        else FirebaseMessaging.getInstance().unsubscribeFromTopic("all")
-                    },
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isDarkTheme) MaterialTheme.colorScheme.surfaceVariant else Color.White
-                )
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.Notifications, contentDescription = null, tint = iconColor, modifier = Modifier.size(24.dp))
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Text("Push Notifications", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                    Switch(checked = isPushEnabled, onCheckedChange = {
-                        isPushEnabled = it
-                        if (it) FirebaseMessaging.getInstance().subscribeToTopic("all")
-                        else FirebaseMessaging.getInstance().unsubscribeFromTopic("all")
-                    })
-                }
-            }*/
 
             Spacer(modifier = Modifier.height(24.dp))
             Text("Support", style = MaterialTheme.typography.titleMedium)
@@ -265,6 +375,20 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(24.dp))
             Text("About", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
+
+            ActionCard("Check for updates", Icons.Default.SystemUpdate, iconColor, isDarkTheme) {
+                val url = "https://drive.google.com/file/d/1vWifJM24d15hzpg0pGvTPwpXS9UAi2pC/view?usp=drive_link"
+                try {
+                    context.startActivity(
+                        Intent(
+                            Intent.ACTION_VIEW,
+                            Uri.parse(url)
+                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                } catch (_: Exception) {
+                    Toast.makeText(context, "Unable to open link", Toast.LENGTH_SHORT).show()
+                }
+            }
 
             ActionCard("About SafeHito", Icons.Default.Info, iconColor, isDarkTheme) {
                 showSheet = ModalSheetType.About
@@ -370,12 +494,53 @@ fun ActionCard(title: String, icon: ImageVector, iconTint: Color, isDarkTheme: B
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(24.dp))
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(24.dp))
             Spacer(modifier = Modifier.width(16.dp))
             Text(title, style = MaterialTheme.typography.bodyLarge)
         }
     }
 }
+
+
+@Composable
+fun ConnectionModeDropdown(selected: String, onSelected: (String) -> Unit) {
+    val labels = mapOf(
+        "auto" to "Auto",
+        "lan" to "LAN",
+        "cloudflare" to "Cloudflare"
+    )
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        Row(
+            modifier = Modifier
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() }
+                ) { expanded = true }
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(labels[selected] ?: selected)
+            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+        }
+
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            labels.forEach { (value, label) ->
+                DropdownMenuItem(
+                    text = { Text(label) },
+                    onClick = {
+                        onSelected(value) // stores "auto", "lan", or "cloudflare"
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

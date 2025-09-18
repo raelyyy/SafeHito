@@ -91,7 +91,7 @@ suspend fun generateMedicalPDF(context: Context, record: com.capstone.safehito.u
         record.result.contains("whitepatch", true) -> "Possible early fungal infection" to "Flat white patches that may indicate fungal infection."
         record.result.contains("reddish", true) -> "Possible secondary infection" to "Reddish areas from irritation or bacterial co-infection."
         record.result.contains("ulcer", true) -> "Skin ulcer / necrotic lesion" to "Open sores often linked to advanced fungal or bacterial infection."
-        record.result.contains("fungal", true) -> "Various fungal species" to "General fungal infection signs."
+        record.result.contains("fungal", true) -> "Fungal infection" to "Signs that may indicate early fungal infection."
         record.result.contains("healthy", true) -> "No pathogens detected" to "Fish appear healthy."
         record.result.contains("no fish", true) -> "No fish detected" to "No visible specimen."
         else -> "Unknown" to "No further details available."

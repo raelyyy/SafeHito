@@ -101,7 +101,7 @@ class MainActivity : ComponentActivity() {
 
             SafeHitoTheme(darkTheme = isDarkMode) {
                 val navController = rememberNavController()
-                val showOfflineBanner by rememberOfflineBannerState()
+                val showOfflineBanner by rememberOfflineBannerState(applicationContext)
 
                 val backgroundColor = if (isDarkMode) Color.Black else Color.White
 

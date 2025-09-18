@@ -280,11 +280,10 @@ fun AdminUserListScreen(
                                     .background(if (darkTheme) Color(0xFF1E1E1E) else Color.White, shape = CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.PersonAdd,
+                                Image(
+                                    painter = painterResource(id = R.drawable.ic_adduser),
                                     contentDescription = "Add User",
-                                    tint = Color(0xFF5DCCFC),
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                         }

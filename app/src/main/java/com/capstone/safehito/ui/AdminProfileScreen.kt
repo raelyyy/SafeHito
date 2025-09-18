@@ -60,6 +60,7 @@ import com.google.firebase.database.ktx.getValue
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.sp
 import com.google.accompanist.swiperefresh.SwipeRefresh
 import com.google.accompanist.swiperefresh.rememberSwipeRefreshState
 import com.google.accompanist.swiperefresh.SwipeRefreshIndicator
@@ -309,7 +310,7 @@ fun AdminProfileScreen(
             TopAppBar(
                 title = {
                     Column(modifier = Modifier.padding(start = 10.dp)) {
-                        Text("SafeHito Admin", fontSize = MaterialTheme.typography.labelSmall.fontSize, color = Color.Gray)
+                        Text("SafeHito Admin", fontSize = 12.sp, color = Color.Gray)
                         Text(
                             if (isEditing) "Edit Profile" else "Profile",
                             fontSize = MaterialTheme.typography.titleLarge.fontSize,
@@ -329,11 +330,10 @@ fun AdminProfileScreen(
                                     .background(if (darkTheme) Color(0xFF1E1E1E) else Color.White, CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Edit,
+                                Image(
+                                    painter = painterResource(id = R.drawable.ic_edit),
                                     contentDescription = "Edit Profile",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                         }
@@ -351,11 +351,10 @@ fun AdminProfileScreen(
                                     .background(if (darkTheme) Color(0xFF1E1E1E) else Color.White, CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Settings,
+                                Image(
+                                    painter = painterResource(id = R.drawable.ic_settings),
                                     contentDescription = "Settings",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                         }

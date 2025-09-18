@@ -68,6 +68,7 @@ import com.capstone.safehito.util.base64ToBitmap
 import com.canhub.cropper.CropImageContract
 import com.canhub.cropper.CropImageOptions
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 
 @RequiresApi(Build.VERSION_CODES.P)
@@ -272,7 +273,7 @@ fun ProfileScreen(
             TopAppBar(
                 title = {
                     Column(modifier = Modifier.padding(start = 10.dp)) {
-                        Text("SafeHito", fontSize = MaterialTheme.typography.labelSmall.fontSize, color = Color.Gray)
+                        Text("SafeHito", fontSize = 12.sp, color = Color.Gray)
                         Text(
                             if (isEditing) "Edit Profile" else "Profile",
                             fontSize = MaterialTheme.typography.titleLarge.fontSize,

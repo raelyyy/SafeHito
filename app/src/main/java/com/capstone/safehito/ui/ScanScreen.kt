@@ -114,6 +114,7 @@ import com.google.firebase.database.ValueEventListener
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import kotlin.io.path.moveTo
+import java.net.UnknownHostException
 
 
 interface PiApi {
@@ -166,6 +167,21 @@ fun createRetrofit(serverUrl: String): PiApi {
 
 
 
+
+// Ensure the server URL is valid and consistent (scheme + no trailing spaces)
+private fun normalizeServerUrl(raw: String?): String {
+    val trimmed = raw?.trim().orEmpty()
+    if (trimmed.isEmpty()) return ""
+    val withScheme = when {
+        trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
+        // Cloudflare tunnels should be HTTPS
+        trimmed.contains("trycloudflare.com", ignoreCase = true) -> "https://$trimmed"
+        // Domain names default to HTTPS, raw IPs to HTTP
+        trimmed.any { it.isLetter() } -> "https://$trimmed"
+        else -> "http://$trimmed"
+    }
+    return withScheme
+}
 
 @Composable
 fun CameraPreviewBox(
@@ -354,21 +370,14 @@ fun ScanScreen(
     // Keep a live copy of Pi status for both camera modes
     val piStatus by piStatusManager.piStatus.collectAsState()
 
-    // Always compute active serverUrl based on connectionMode + Pi status
+    // Always compute active serverUrl using PiStatusManager and normalize
     LaunchedEffect(connectionMode, piStatus) {
-        serverUrl = when (connectionMode.lowercase()) {
-            "lan" -> if (!piStatus.ipAddress.isNullOrEmpty()) {
-                "http://${piStatus.ipAddress}:5000"
-            } else ""
-            "cloudflare" -> piStatus.cloudflareUrl ?: ""
-            else -> { // auto
-                if (!piStatus.ipAddress.isNullOrEmpty()) {
-                    "http://${piStatus.ipAddress}:5000"
-                } else {
-                    piStatus.cloudflareUrl ?: ""
-                }
-            }
+        val chosen = when (connectionMode.lowercase()) {
+            "lan" -> if (!piStatus.ipAddress.isNullOrEmpty()) "http://${piStatus.ipAddress}:5000" else piStatus.serverUrl
+            "cloudflare" -> piStatus.cloudflareUrl ?: piStatus.serverUrl
+            else -> piStatus.serverUrl
         }
+        serverUrl = normalizeServerUrl(chosen)
         Log.d("ScanScreen", "✅ Active serverUrl: $serverUrl (mode=$connectionMode)")
     }
 
@@ -555,11 +564,14 @@ fun ScanScreen(
                     }
                     imageUrl != null -> {
                         AsyncImage(
-                            model = "${imageUrl}?key=$reloadKey",
+                            model = "$imageUrl?ts=${System.currentTimeMillis()}",
                             contentDescription = "Scanned Image",
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
                         )
+
                     }
+
 
 
 
@@ -569,19 +581,12 @@ fun ScanScreen(
 
                         // 🔧 Keep serverUrl in sync with connectionMode + Pi status
                         LaunchedEffect(connectionMode, piStatus) {
-                            serverUrl = when (connectionMode.lowercase()) {
-                                "lan" -> if (!piStatus.ipAddress.isNullOrEmpty()) {
-                                    "http://${piStatus.ipAddress}:5000"
-                                } else ""
-                                "cloudflare" -> piStatus.cloudflareUrl ?: ""
-                                else -> { // auto
-                                    if (!piStatus.ipAddress.isNullOrEmpty()) {
-                                        "http://${piStatus.ipAddress}:5000"
-                                    } else {
-                                        piStatus.cloudflareUrl ?: ""
-                                    }
-                                }
+                            val chosen = when (connectionMode.lowercase()) {
+                                "lan" -> if (!piStatus.ipAddress.isNullOrEmpty()) "http://${piStatus.ipAddress}:5000" else piStatus.serverUrl
+                                "cloudflare" -> piStatus.cloudflareUrl ?: piStatus.serverUrl
+                                else -> piStatus.serverUrl
                             }
+                            serverUrl = normalizeServerUrl(chosen)
                             Log.d("ScanScreen", "✅ Active serverUrl: $serverUrl (mode=$connectionMode)")
                         }
 
@@ -602,22 +607,14 @@ fun ScanScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             if (piStatus.isOnline) {
-                                // ✅ Prefer LAN if available
-                                val activeUrl = when (connectionMode) {
-                                    "lan" -> if (!piStatus.ipAddress.isNullOrEmpty()) {
-                                        "http://${piStatus.ipAddress}:5000"
-                                    } else null
-
-                                    "cloudflare" -> piStatus.serverUrl
-
-                                    else -> { // auto (default)
-                                        if (!piStatus.ipAddress.isNullOrEmpty()) {
-                                            "http://${piStatus.ipAddress}:5000"
-                                        } else {
-                                            piStatus.serverUrl
-                                        }
+                                // ✅ Use normalized URL from manager/mode
+                                val activeUrl = normalizeServerUrl(
+                                    when (connectionMode.lowercase()) {
+                                        "lan" -> if (!piStatus.ipAddress.isNullOrEmpty()) "http://${piStatus.ipAddress}:5000" else piStatus.serverUrl
+                                        "cloudflare" -> piStatus.serverUrl
+                                        else -> piStatus.serverUrl
                                     }
-                                }
+                                )
 
                                 var showUrl by remember { mutableStateOf(false) }
                                 val context = LocalContext.current
@@ -646,52 +643,6 @@ fun ScanScreen(
                                         // ✅ Reset refreshing state once WebView loads
                                         LaunchedEffect(Unit) { isRefreshing = false }
 
-                                        // "More" toggle button (top-right)
-                                        IconButton(
-                                            onClick = { showUrl = !showUrl },
-                                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.MoreVert,
-                                                contentDescription = "More",
-                                                tint = Color.White
-                                            )
-                                        }
-
-                                        // Show link + copy icon if toggled
-                                        if (showUrl) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier
-                                                    .align(Alignment.TopEnd)
-                                                    .padding(top = 48.dp, end = 12.dp) // below the More button
-                                                    .background(Color(0x66000000), RoundedCornerShape(6.dp))
-                                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                                            ) {
-                                                Text(
-                                                    text = activeUrl,
-                                                    color = Color.White,
-                                                    fontSize = 12.sp,
-                                                    modifier = Modifier.padding(end = 6.dp)
-                                                )
-                                                IconButton(
-                                                    onClick = {
-                                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                                        val clip = android.content.ClipData.newPlainText("Pi Address", activeUrl)
-                                                        clipboard.setPrimaryClip(clip)
-                                                        Toast.makeText(context, "Address copied!", Toast.LENGTH_SHORT).show()
-                                                    },
-                                                    modifier = Modifier.size(18.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.ContentCopy,
-                                                        contentDescription = "Copy",
-                                                        tint = Color.White,
-                                                        modifier = Modifier.size(14.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
                                     }
                                 }
 
@@ -941,29 +892,55 @@ fun ScanScreen(
                                     }
 
                                     // ✅ normalize URL
-                                    val fixedUrl = if (serverUrl.startsWith("http://") || serverUrl.startsWith("https://")) {
-                                        serverUrl
-                                    } else {
-                                        "http://$serverUrl"
-                                    }
+                                    val fixedUrl = normalizeServerUrl(serverUrl)
+                                    val cfFallback = normalizeServerUrl(piStatusManager.piStatus.value.cloudflareUrl)
 
-                                    val api = createRetrofit(fixedUrl)
-                                    val response = withTimeoutOrNull(7000) { api.scanFromPi(uid ?: "admin") }
+                                    // Try primary URL; fallback to Cloudflare URL if DNS/timeout
+                                    var response: Response<ScanResponse>? = null
+                                    try {
+                                        response = withTimeoutOrNull(7000) {
+                                            createRetrofit(fixedUrl).scanFromPi(uid ?: "admin")
+                                        }
+                                    } catch (_: UnknownHostException) { /* handled below */ }
+
+                                    if ((response == null || !(response.isSuccessful)) && cfFallback.isNotBlank() && cfFallback != fixedUrl) {
+                                        try {
+                                            Log.d("ScanScreen", "Primary failed. Retrying with Cloudflare: $cfFallback")
+                                            response = withTimeoutOrNull(7000) {
+                                                createRetrofit(cfFallback).scanFromPi(uid ?: "admin")
+                                            }
+                                        } catch (_: Exception) { /* use response as is (may be null) */ }
+                                    }
 
                                     withContext(Dispatchers.Main) {
                                         if (response == null) {
                                             scanResult = "Request timeout. Make sure your Pi is online."
                                             cameraActive = false
                                         } else {
-                                            val responseBody = response.body()
-                                            if (response.isSuccessful && responseBody?.status == "success") {
-                                                imageUrl = "$serverUrl/${responseBody.image_url?.trimStart('/')}"
+                                            val resp = response
+                                            val responseBody = resp.body()
+                                            if (resp.isSuccessful && responseBody?.status == "success") {
+                                                // ✅ Assign final usable URL
+                                                val base = if (resp.raw().request.url.toString().startsWith(cfFallback)) cfFallback else fixedUrl
+
+                                                val fixedImageUrl = if (responseBody.image_url?.startsWith("http") == true) {
+                                                    responseBody.image_url
+                                                } else {
+                                                    // ✅ ensure base + relative path
+                                                    base.trimEnd('/') + responseBody.image_url.orEmpty()
+                                                }
+
+                                                Log.d("ScanScreen", "✅ Final image URL: $fixedImageUrl")
+                                                imageUrl = fixedImageUrl
+
+
                                                 scanResult = responseBody.result ?: "No result"
-                                                showLivePreview = false
+                                                showLivePreview = false   // freeze preview
                                                 cameraActive = false
-                                                reloadKey++
-                                            } else {
-                                                val errMsg = responseBody?.message ?: response.errorBody()?.string() ?: "Unknown error"
+                                                reloadKey++               // force refresh if same URL
+                                            }
+                                            else {
+                                                val errMsg = responseBody?.message ?: resp.errorBody()?.string() ?: "Unknown error"
                                                 scanResult = "Scan failed: $errMsg"
                                                 cameraActive = false
                                             }
@@ -972,7 +949,10 @@ fun ScanScreen(
                                     }
                                 } catch (e: Exception) {
                                     withContext(Dispatchers.Main) {
-                                        scanResult = "Error: ${e.message}"
+                                        val message = if (e is UnknownHostException) {
+                                            "DNS failed. If you're on mobile data, try Wi‑Fi. URL: $serverUrl"
+                                        } else e.message
+                                        scanResult = "Error: ${message}"
                                         cameraActive = false
                                         isLoading = false
                                     }
@@ -1011,21 +991,40 @@ fun ScanScreen(
                                                     return@launch
                                                 }
 
-                                                val fixedUrl = if (serverUrl.startsWith("http")) serverUrl else "http://$serverUrl"
-                                                val api = createRetrofit(fixedUrl)
-                                                val response = api.scanPhoneImage(body, uidBody)
+                                                val fixedUrl = normalizeServerUrl(serverUrl)
+                                                val cfFallback = normalizeServerUrl(piStatusManager.piStatus.value.cloudflareUrl)
+
+                                                var response: Response<ScanResponse>? = null
+                                                try {
+                                                    response = createRetrofit(fixedUrl).scanPhoneImage(body, uidBody)
+                                                } catch (_: UnknownHostException) { /* handled below */ }
+
+                                                if ((response == null || !(response.isSuccessful)) && cfFallback.isNotBlank() && cfFallback != fixedUrl) {
+                                                    try {
+                                                        Log.d("ScanScreen", "Primary failed. Retrying upload with Cloudflare: $cfFallback")
+                                                        response = createRetrofit(cfFallback).scanPhoneImage(body, uidBody)
+                                                    } catch (_: Exception) { }
+                                                }
 
                                                 withContext(Dispatchers.Main) {
-                                                    val responseBody = response.body()
-                                                    if (response.isSuccessful && responseBody?.status == "success") {
-                                                        imageUrl = responseBody.image_url
+                                                    if (response == null) {
+                                                        scanResult = "Request failed. Please try again."
+                                                        cameraActive = false
+                                                        isLoading = false
+                                                        return@withContext
+                                                    }
+                                                    val resp = response
+                                                    val responseBody = resp.body()
+                                                    if (resp.isSuccessful && responseBody?.status == "success") {
+                                                        val base = if (resp.raw().request.url.toString().startsWith(cfFallback)) cfFallback else fixedUrl
+                                                        imageUrl = responseBody.image_url ?: "${base.trimEnd('/')}/images/latest.jpg"
                                                         scanResult = responseBody.result ?: "No result"
                                                         showLivePreview = false
                                                         cameraActive = false
                                                         reloadKey++
                                                         cameraProvider?.unbindAll()
                                                     } else {
-                                                        val errMsg = responseBody?.message ?: response.errorBody()?.string() ?: "Unknown error"
+                                                        val errMsg = responseBody?.message ?: resp.errorBody()?.string() ?: "Unknown error"
                                                         scanResult = "Scan failed: $errMsg"
                                                         cameraActive = false
                                                     }
@@ -1033,7 +1032,10 @@ fun ScanScreen(
                                                 }
                                             } catch (e: Exception) {
                                                 withContext(Dispatchers.Main) {
-                                                    scanResult = "Error: ${e.message}"
+                                                    val message = if (e is UnknownHostException) {
+                                                        "DNS failed. If you're on mobile data, try Wi‑Fi. URL: $serverUrl"
+                                                    } else e.message
+                                                    scanResult = "Error: ${message}"
                                                     cameraActive = false
                                                     isLoading = false
                                                 }
@@ -1170,18 +1172,36 @@ fun ScanScreen(
             if (currentScanResult != null && currentScanResult.isNotBlank()) {
                 val diagnosisText = remember(currentScanResult) {
                     val text = currentScanResult.trim()
+                    val normalized = text.lowercase()
+                    // Extract a leading label before any parentheses or colon
+                    val leadingLabel = normalized.substringBefore("(").substringBefore(":").trim()
+
+                    val isError = normalized.contains("error") ||
+                            normalized.contains("failed") ||
+                            normalized.contains("timeout") ||
+                            normalized.contains("no pi ip") ||
+                            normalized.startsWith("scan failed")
+
+                    val isNoFish = normalized.contains("no fish") ||
+                            normalized.contains("nofish") ||
+                            leadingLabel == "nofish" || leadingLabel == "no fish"
+
+                    val isHealthy = normalized.contains("no infection") ||
+                            normalized.contains("healthy") ||
+                            leadingLabel == "healthy" || leadingLabel == "no infection"
+
                     when {
-                        text.contains("no infection", ignoreCase = true) -> {
+                        isHealthy -> {
                             "✅ No infection detected.\nYour fish appear healthy."
                         }
-                        text.contains("error", ignoreCase = true)
-                                || text.contains("failed", ignoreCase = true)
-                                || text.contains("timeout", ignoreCase = true)
-                                || text.contains("No Pi IP", ignoreCase = true) -> {
+                        isNoFish -> {
+                            "\uD83D\uDC1F No fish detected.\nPlease ensure a fish is visible in the frame."
+                        }
+                        isError -> {
                             "❌ Error:\n$text"
                         }
                         else -> {
-                            "⚠️ Possible infection detected:\n$text\n"
+                            "⚠️ Possible infection detected:\n$text"
                         }
                     }
                 }

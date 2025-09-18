@@ -250,28 +250,33 @@ fun SensorRangeChart(sensorLabel: String, value: Float) {
             GradientSensorChart(
                 currentValue = value,
                 minValue = 0f,
-                maxValue = 42f,
+                maxValue = 60f, // allows space for overflow
                 gradient = Brush.horizontalGradient(
                     listOf(
                         Color(0xFFD32F2F), // Critical
                         Color(0xFFFF9800), // Low
                         Color(0xFF8BC34A), // Sufficient
                         Color(0xFF4CAF50), // Good
-                        Color(0xFF2E7D32)  // Excellent
+                        Color(0xFF2E7D32), // Excellent
+                        Color(0xFF4CAF50),
+                        Color(0xFF8BC34A),
+                        Color(0xFFFF9800),
+                        Color(0xFFD32F2F)  // Overflow
                     )
                 ),
-                thresholds = listOf(0f, 10f, 20f, 30f, 40f),
+                thresholds = listOf(0f, 10f, 15f, 30f, 45f, 60f),
                 labelFormatter = {
                     when (it) {
                         0f -> "0"
                         10f -> "10"
-                        20f -> "20"
+                        15f -> "15"
                         30f -> "30"
-                        40f -> ">40"
+                        45f -> "45"
+                        60f -> ">45"
                         else -> "%.0f".format(it)
                     }
                 },
-                zoneLabels = listOf("Low", "Sufficient", "Excellent")
+                zoneLabels = listOf("Low", "Sufficient", "Overflow")
             )
         }
     }

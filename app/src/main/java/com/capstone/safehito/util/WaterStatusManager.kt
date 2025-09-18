@@ -113,26 +113,29 @@ class WaterStatusManager(private val context: Context, private val userId: Strin
         paramStates["Temperature"] = tempNormal
         if (!tempNormal) triggeredParams.add("Temperature ($temperature°C)")
 
-        val oxygenNormal = oxygen >= 4.0
+        val oxygenNormal = oxygen >= 3.5
         paramStates["Oxygen"] = oxygenNormal
         if (!oxygenNormal) triggeredParams.add("Oxygen ($oxygen mg/L)")
 
-        val turbidityNormal = turbidity <= 50.0
+        val turbidityNormal = turbidity <= 125.0
         paramStates["Turbidity"] = turbidityNormal
         if (!turbidityNormal) triggeredParams.add("Turbidity ($turbidity NTU)")
 
-        val waterLevelNormal = waterLevel >= 20.0
+        // ✅ Water Level Check
+        val waterLevelNormal = waterLevel in 15.0..45.0
         paramStates["Water Level"] = waterLevelNormal
+
         if (!waterLevelNormal) {
             val levelStatus = when {
-                waterLevel >= 40.0 -> "Excellent"
-                waterLevel >= 30.0 -> "Good"
-                waterLevel >= 20.0 -> "Sufficient"
+                waterLevel > 45.0 -> "Overflow"
+                waterLevel >= 30.0 -> "High"
+                waterLevel >= 15.0 -> "Sufficient" // still safe but only tracked if warning triggered
                 waterLevel >= 10.0 -> "Low"
                 else -> "Critical"
             }
             triggeredParams.add("Water Level ($waterLevel cm - $levelStatus)")
         }
+
 
         val failedCount = triggeredParams.size
 

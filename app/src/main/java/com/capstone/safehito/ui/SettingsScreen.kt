@@ -297,13 +297,13 @@ fun SettingsScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                        .padding(start = 20.dp, end = 0.dp, top = 16.dp, bottom = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = Icons.Default.Timer,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurface, // ✅ adaptive color
+                        tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.width(16.dp))
@@ -315,19 +315,31 @@ fun SettingsScreen(
 
                     if (isAdmin) {
                         Box {
-                            TextButton(onClick = { if (!isCooldownLoading) expanded = true }, enabled = !isCooldownLoading) {
+                            // 🔹 Styled like Pi Connection dropdown (no ripple, primary text, arrow)
+                            Row(
+                                modifier = Modifier
+                                    .clickable(
+                                        indication = null, // ✅ hides ripple/click indicator
+                                        interactionSource = remember { MutableInteractionSource() }
+                                    ) { if (!isCooldownLoading) expanded = true }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 if (isCooldownLoading) {
-                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp
+                                    )
                                     Spacer(modifier = Modifier.width(8.dp))
                                 }
                                 Text(
                                     cooldownOptions.find { it.first == selectedCooldown }?.second ?: "",
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Icon(
                                     imageVector = Icons.Default.ArrowDropDown,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
 
@@ -348,7 +360,6 @@ fun SettingsScreen(
                             }
                         }
                     } else {
-                        // Non-admin: just show the value
                         Text(
                             text = cooldownOptions.find { it.first == selectedCooldown }?.second ?: "",
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -377,7 +388,7 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             ActionCard("Check for updates", Icons.Default.SystemUpdate, iconColor, isDarkTheme) {
-                val url = "https://drive.google.com/file/d/1vWifJM24d15hzpg0pGvTPwpXS9UAi2pC/view?usp=drive_link"
+                val url = "https://github.com/raelyyy/SafeHito/releases/latest"
                 try {
                     context.startActivity(
                         Intent(

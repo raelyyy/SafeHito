@@ -1,5 +1,9 @@
 package com.capstone.safehito.ui.components
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -16,8 +20,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -117,7 +124,6 @@ fun ConnectionQualityIndicator(quality: ConnectionQuality) {
         modifier = Modifier.size(16.dp)
     )
 }
-
 @Composable
 fun PiStatusDialog(
     piStatusManager: PiStatusManager,
@@ -125,7 +131,8 @@ fun PiStatusDialog(
 ) {
     val piStatus by piStatusManager.piStatus.collectAsState()
     val dateFormat = remember { SimpleDateFormat("MMM dd, yyyy HH:mm:ss", Locale.getDefault()) }
-    
+    val context = LocalContext.current
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -137,17 +144,19 @@ fun PiStatusDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            shape = RoundedCornerShape(16.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+            shape = RoundedCornerShape(20.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(
                 modifier = Modifier.padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                horizontalAlignment = Alignment.Start
             ) {
                 // Header
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(
                         imageVector = Icons.Default.Computer,
@@ -155,67 +164,105 @@ fun PiStatusDialog(
                         tint = piStatusManager.getStatusColor(),
                         modifier = Modifier.size(32.dp)
                     )
-                    
                     Text(
                         text = "Pi Connection Status",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                
-                Spacer(modifier = Modifier.height(20.dp))
-                
-                // Status details
-                StatusDetailRow("Status", piStatusManager.getStatusDescription())
-                
-                piStatus.ipAddress?.let { ip ->
-                    StatusDetailRow("IP Address", ip)
-                }
-                
-                if (piStatus.lastSeen > 0) {
-                    StatusDetailRow(
-                        "Last Seen",
-                        dateFormat.format(Date(piStatus.lastSeen))
-                    )
-                }
-                
-                if (piStatus.isOnline) {
-                    StatusDetailRow(
-                        "Connection Quality",
-                        piStatus.connectionQuality.name.lowercase().capitalize()
-                    )
-                }
-                
-                piStatus.errorMessage?.let { error ->
-                    StatusDetailRow("Error", error, isError = true)
-                }
-                
-                Spacer(modifier = Modifier.height(20.dp))
-                
-                // Action buttons
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            piStatusManager.forceConnectionCheck()
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Refresh",
-                            modifier = Modifier.size(16.dp)
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Bold
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Refresh")
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Status details
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    StatusDetailRow("Status", piStatusManager.getStatusDescription())
+
+                    // LAN IP clickable + copy
+                    piStatus.ipAddress?.let { ip ->
+                        val url = "http://$ip:5000"
+                        StatusDetailRow(
+                            label = "LAN IP",
+                            value = url,
+                            clickable = true,
+                            onClick = {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                context.startActivity(intent)
+                            },
+                            onCopy = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                val clip = android.content.ClipData.newPlainText("LAN IP", url)
+                                clipboard.setPrimaryClip(clip)
+                                Toast.makeText(context, "LAN IP copied!", Toast.LENGTH_SHORT).show()
+                            }
+                        )
                     }
-                    
-                    Button(
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f)
+
+                    // Cloudflare clickable + copy
+                    piStatus.cloudflareUrl?.let { url ->
+                        StatusDetailRow(
+                            label = "Cloudflare",
+                            value = url,
+                            clickable = true,
+                            onClick = {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                context.startActivity(intent)
+                            },
+                            onCopy = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                val clip = android.content.ClipData.newPlainText("Cloudflare URL", url)
+                                clipboard.setPrimaryClip(clip)
+                                Toast.makeText(context, "Cloudflare URL copied!", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+
+                    if (piStatus.lastSeen > 0) {
+                        StatusDetailRow("Last Seen", dateFormat.format(Date(piStatus.lastSeen)))
+                    }
+
+                    if (piStatus.isOnline) {
+                        StatusDetailRow(
+                            "Connection",
+                            piStatus.connectionQuality.name.lowercase().replaceFirstChar { it.uppercase() }
+                        )
+                    }
+
+                    piStatus.errorMessage?.let { error ->
+                        StatusDetailRow("Error", error, isError = true)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Close button only
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                    contentPadding = PaddingValues()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                brush = Brush.linearGradient(
+                                    colors = listOf(Color(0xFF5DCCFC), Color(0xFF007EF2))
+                                ),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text("Close")
+                        Text(
+                            "Close",
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                        )
                     }
                 }
             }
@@ -227,29 +274,63 @@ fun PiStatusDialog(
 private fun StatusDetailRow(
     label: String,
     value: String,
-    isError: Boolean = false
+    isError: Boolean = false,
+    clickable: Boolean = false,
+    onClick: (() -> Unit)? = null,
+    onCopy: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+            .then(
+                if (clickable && onClick != null) {
+                    Modifier.clickable { onClick() }
+                } else Modifier
+            )
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-            color = Color.Gray
+            style = MaterialTheme.typography.bodyMedium.copy(
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                fontWeight = FontWeight.Medium
+            ),
+            modifier = Modifier.widthIn(min = 90.dp)
         )
-        
+        Spacer(Modifier.width(8.dp))
         Text(
             text = value,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (isError) Color.Red else Color.Black,
-            fontWeight = FontWeight.Normal
+            style = MaterialTheme.typography.bodyMedium.copy(
+                color = when {
+                    isError -> MaterialTheme.colorScheme.error
+                    clickable -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.onSurface
+                },
+                fontWeight = FontWeight.Normal
+            ),
+            modifier = Modifier.weight(1f),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
         )
+
+        // Copy icon (if copy is supported)
+        if (onCopy != null) {
+            IconButton(
+                onClick = { onCopy() },
+                modifier = Modifier.size(20.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ContentCopy,
+                    contentDescription = "Copy",
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
     }
 }
+
 
 @Composable
 fun PiStatusBanner(

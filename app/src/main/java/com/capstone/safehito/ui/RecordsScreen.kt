@@ -149,7 +149,7 @@ fun ScanCard(record: Record, recordKey: String, darkTheme: Boolean) {
         record.result.contains("fungal", ignoreCase = true) -> DiagnosisStyle(
             bgColor = if (darkTheme) Color(0xFF424242) else Color(0xFFF5F5F5),
             textColor = if (darkTheme) Color(0xFFFF9890) else Color(0xFFD32F2F),
-            statusText = "General Fungal Infection",
+            statusText = "Infected – Fungal Infection",
             dotColor = Color.Red
         )
         record.result.contains("healthy", ignoreCase = true) -> DiagnosisStyle(
@@ -196,8 +196,8 @@ fun ScanCard(record: Record, recordKey: String, darkTheme: Boolean) {
             shortDescription = "Open sores often linked to advanced fungal or bacterial infection."
         )
         record.result.contains("fungal", ignoreCase = true) -> DiagnosisDetails(
-            scientificName = "Various fungal species",
-            shortDescription = "Signs of fungal infection detected."
+            scientificName = "Fungal infection",
+            shortDescription = "Signs that may indicate early fungal infection."
         )
         record.result.contains("healthy", ignoreCase = true) -> DiagnosisDetails(
             scientificName = "No pathogens detected",

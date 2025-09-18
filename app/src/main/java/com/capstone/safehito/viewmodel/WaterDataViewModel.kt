@@ -155,10 +155,16 @@ class WaterDataViewModel : ViewModel() {
         }
         
         // Check water level
-        if (waterLevel < 20.0) {
+        // ✅ Updated Water Level check
+        if (waterLevel < 15.0 || waterLevel > 45.0) {
             issues.add("Water Level")
-            val severity = if (waterLevel < 10.0) AuditLogService.SEVERITY_CRITICAL else AuditLogService.SEVERITY_WARNING
-            auditLogService.logWaterParameterAlert("Water Level", waterLevel.toString(), "≥20.0 cm", severity)
+            val severity = when {
+                waterLevel < 10.0 -> AuditLogService.SEVERITY_CRITICAL
+                waterLevel < 15.0 -> AuditLogService.SEVERITY_WARNING
+                waterLevel > 60.0 -> AuditLogService.SEVERITY_CRITICAL // extreme overflow
+                else -> AuditLogService.SEVERITY_WARNING
+            }
+            auditLogService.logWaterParameterAlert("Water Level", waterLevel.toString(), "15.0–45.0 cm", severity)
         }
 
         val newStatus = when {

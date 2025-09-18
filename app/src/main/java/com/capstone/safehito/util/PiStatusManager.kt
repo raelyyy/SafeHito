@@ -231,7 +231,7 @@ class PiStatusManager {
                     ConnectionQuality.UNKNOWN -> "Pi Online"
                 }
             }
-            _piStatus.value.ipAddress == null -> "Pi Not Configured"
+            //_piStatus.value.ipAddress == null -> "Pi Not Configured"
             else -> "Pi Offline"
         }
     }
@@ -247,7 +247,7 @@ class PiStatusManager {
                     ConnectionQuality.UNKNOWN -> androidx.compose.ui.graphics.Color(0xFF2196F3) // Blue
                 }
             }
-            _piStatus.value.ipAddress == null -> androidx.compose.ui.graphics.Color(0xFF9E9E9E) // Grey
+            //_piStatus.value.ipAddress == null -> androidx.compose.ui.graphics.Color(0xFF9E9E9E) // Grey
             else -> androidx.compose.ui.graphics.Color(0xFFF44336) // Red
         }
     }

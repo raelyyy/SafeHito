@@ -210,7 +210,7 @@ fun DashboardScreen(
             temperature.toDoubleOrNull()?.takeIf { it !in 24.0..30.0 }?.let { add("Temperature") }
             turbidity.toDoubleOrNull()?.takeIf { it > 125.0 }?.let { add("Turbidity") }
             dissolvedOxygen.toDoubleOrNull()?.takeIf { it < 3.5 }?.let { add("Oxygen") }
-            waterLevel.toDoubleOrNull()?.takeIf { it < 20.0 }?.let { add("Water Level") }
+            waterLevel.toDoubleOrNull()?.takeIf { it < 15.0 || it > 45.0 }?.let { add("Water Level") }
         }
     }
 
@@ -245,16 +245,29 @@ fun DashboardScreen(
         if (!turbidityNormal) triggeredParams.add("Turbidity (${turbidity} NTU)")
 
         // Water Level
-        val waterLevelNormal = waterLevel >= 20.0
+        val waterLevelNormal = waterLevel in 15.0..45.0
         paramStates["Water Level"] = waterLevelNormal
-        if (!waterLevelNormal) triggeredParams.add("Water Level (${waterLevel} cm)")
+        if (!waterLevelNormal) {
+            val levelStatus = when {
+                waterLevel > 45.0 -> "Overflow"
+                waterLevel >= 30.0 -> "High"
+                waterLevel >= 15.0 -> "Sufficient"
+                waterLevel >= 10.0 -> "Low"
+                else -> "Critical"
+            }
+            triggeredParams.add("Water Level (${waterLevel} cm - $levelStatus)")
+        }
 
-        // Determine status by number of issues
-        val numIssues = triggeredParams.size
+
+        // ✅ If any value is invalid (NaN), mark tank status as Unknown
+        val hasInvalid = listOf(ph, temperature, oxygen, turbidity, waterLevel)
+            .any { it.isNaN() }
+
         val status = when {
-            numIssues == 0 -> "Normal"
-            numIssues >= 3 -> "Warning"
-            numIssues >= 2 -> "Caution"
+            hasInvalid -> "Unknown"
+            triggeredParams.isEmpty() -> "Normal"
+            triggeredParams.size >= 3 -> "Warning"
+            triggeredParams.size >= 2 -> "Caution"
             else -> "Caution"
         }
 
@@ -262,11 +275,11 @@ fun DashboardScreen(
     }
 
     val (evaluatedStatus, evaluatedIssues, _) = evaluateWaterStatusWithDetails(
-        ph = ph.toDoubleOrNull() ?: 0.0,
-        temperature = temperature.toDoubleOrNull() ?: 0.0,
-        oxygen = dissolvedOxygen.toDoubleOrNull() ?: 0.0,
-        turbidity = turbidity.toDoubleOrNull() ?: 0.0,
-        waterLevel = waterLevel.toDoubleOrNull() ?: 0.0
+        ph = ph.toDoubleOrNull() ?: Double.NaN,
+        temperature = temperature.toDoubleOrNull() ?: Double.NaN,
+        oxygen = dissolvedOxygen.toDoubleOrNull() ?: Double.NaN,
+        turbidity = turbidity.toDoubleOrNull() ?: Double.NaN,
+        waterLevel = waterLevel.toDoubleOrNull() ?: Double.NaN
     )
 
 
@@ -319,7 +332,13 @@ fun DashboardScreen(
     } ?: "Unknown"
 
     val waterLevelStatus = waterLevel.toDoubleOrNull()?.let {
-        if (it >= 20.0) "Sufficient" else "Low Water Level"
+        when {
+            it > 45.0 -> "Overflow"
+            it >= 30.0 -> "High"
+            it >= 15.0 -> "Sufficient"
+            it >= 10.0 -> "Low"
+            else -> "Critical"
+        }
     } ?: "Unknown"
 
 // Status card colors
@@ -839,30 +858,41 @@ fun DashboardScreen(
                             fun getSensorStatus(label: String, value: Float): SensorStatus {
                                 return when (label.lowercase()) {
                                     "ph", "ph level" -> when {
+                                        !value.isFinite() || value <= 0f -> SensorStatus("Unknown", Color(0xFF616161))
                                         value < 6.5f -> SensorStatus("Acidic", Color(0xFFD32F2F))
                                         value > 8.5f -> SensorStatus("Alkaline", Color(0xFFD32F2F))
                                         else -> SensorStatus("Balanced", Color(0xFF2E7D32))
                                     }
+
                                     "temperature" -> when {
+                                        !value.isFinite() || value <= 0f -> SensorStatus("Unknown", Color(0xFF616161))
                                         value < 24f -> SensorStatus("Too Low", Color(0xFFD32F2F))
                                         value > 30f -> SensorStatus("Too High", Color(0xFFD32F2F))
                                         else -> SensorStatus("Optimal", Color(0xFF2E7D32))
                                     }
+
                                     "dissolved oxygen" -> when {
+                                        !value.isFinite() || value <= 0f -> SensorStatus("Unknown", Color(0xFF616161))
                                         value < 3.5f -> SensorStatus("Low Oxygen", Color(0xFFD32F2F))
                                         value < 5.0f -> SensorStatus("Slightly Low", Color(0xFFFFA000))
                                         value <= 6.5f -> SensorStatus("Adequate", Color(0xFF2E7D32))
                                         else -> SensorStatus("High Oxygen", Color(0xFFFFA000))
                                     }
+
                                     "turbidity" -> when {
+                                        !value.isFinite() || value <= 0f -> SensorStatus("Unknown", Color(0xFF616161))
                                         value <= 50f -> SensorStatus("Clear", Color(0xFF2E7D32))
                                         value <= 125f -> SensorStatus("Slightly Murky", Color(0xFFFFA000))
                                         else -> SensorStatus("Murky", Color(0xFFD32F2F))
                                     }
+
                                     "water level" -> when {
-                                        value < 20f -> SensorStatus("Low Water Level", Color(0xFFD32F2F))
-                                        value in 20f..50f -> SensorStatus("Sufficient", Color(0xFF2E7D32))
-                                        else -> SensorStatus("Unknown", Color(0xFF616161))
+                                        !value.isFinite() || value <= 0f -> SensorStatus("Unknown", Color(0xFF616161))
+                                        value > 45f -> SensorStatus("Overflow", Color(0xFFD32F2F))
+                                        value >= 30f -> SensorStatus("High", Color(0xFF388E3C))
+                                        value >= 15f -> SensorStatus("Sufficient", Color(0xFF2E7D32))
+                                        value >= 10f -> SensorStatus("Low", Color(0xFFFFA000))
+                                        else -> SensorStatus("Critical", Color(0xFFD32F2F))
                                     }
 
                                     else -> SensorStatus("Unknown", Color(0xFF616161))
@@ -871,23 +901,23 @@ fun DashboardScreen(
 
                             val (currentValue, status) = when {
                                 label.contains("ph", ignoreCase = true) -> {
-                                    val v = ph.toFloatOrNull() ?: 0f
+                                    val v = ph.toFloatOrNull() ?: Float.NaN
                                     v to getSensorStatus("ph", v)
                                 }
                                 label.contains("temperature", ignoreCase = true) -> {
-                                    val v = temperature.toFloatOrNull() ?: 0f
+                                    val v = temperature.toFloatOrNull() ?: Float.NaN
                                     v to getSensorStatus("temperature", v)
                                 }
                                 label.contains("oxygen", ignoreCase = true) -> {
-                                    val v = dissolvedOxygen.toFloatOrNull() ?: 0f
+                                    val v = dissolvedOxygen.toFloatOrNull() ?: Float.NaN
                                     v to getSensorStatus("dissolved oxygen", v)
                                 }
                                 label.contains("turbidity", ignoreCase = true) -> {
-                                    val v = turbidity.toFloatOrNull() ?: 0f
+                                    val v = turbidity.toFloatOrNull() ?: Float.NaN
                                     v to getSensorStatus("turbidity", v)
                                 }
                                 label.contains("water level", ignoreCase = true) -> {
-                                    val v = sensor.value.replace("[^0-9.]".toRegex(), "").toFloatOrNull() ?: 0f
+                                    val v = sensor.value.replace("[^0-9.]".toRegex(), "").toFloatOrNull() ?: Float.NaN
                                     v to getSensorStatus("water level", v)
                                 }
                                 label.contains("tank status", ignoreCase = true) -> {
@@ -902,7 +932,7 @@ fun DashboardScreen(
                                     )
                                 }
                                 else -> {
-                                    val v = sensor.value.replace("[^0-9.]".toRegex(), "").toFloatOrNull() ?: 0f
+                                    val v = sensor.value.replace("[^0-9.]".toRegex(), "").toFloatOrNull() ?: Float.NaN
                                     v to SensorStatus("Unknown", Color(0xFF616161))
                                 }
                             }
@@ -950,7 +980,8 @@ fun DashboardScreen(
                                 Spacer(Modifier.height(12.dp))
 
                                 if (!label.contains("tank status", ignoreCase = true)) {
-                                    Text("Current Value: $currentValue", style = MaterialTheme.typography.bodyLarge)
+                                    val displayValue = if (currentValue.isNaN()) "--" else currentValue.toString()
+                                    Text("Current Value: $displayValue", style = MaterialTheme.typography.bodyLarge)
                                 }
                                 Text("Status: ${status.label}", color = status.color, style = MaterialTheme.typography.bodyLarge)
 
@@ -1049,10 +1080,16 @@ fun DashboardScreen(
 
                     val waterLevelFloat = waterLevel.toFloatOrNull() ?: 0f
 
-                    val waterLevelStatus = when {
-                        waterLevelFloat < 20f -> "Low Water Level"
-                        waterLevelFloat in 20f..50f -> "Sufficient"
-                        else -> "Unknown"
+                    val waterLevelStatus = if (!waterLevel.isNullOrBlank() && waterLevel.toFloatOrNull() != null) {
+                        when {
+                            waterLevelFloat > 45f -> "Overflow"
+                            waterLevelFloat >= 30f -> "High"
+                            waterLevelFloat >= 15f -> "Sufficient"
+                            waterLevelFloat >= 10f -> "Low"
+                            else -> "Critical"
+                        }
+                    } else {
+                        "Unknown"
                     }
 
 
@@ -1105,14 +1142,22 @@ fun DashboardScreen(
                         FlippableSensorCardWithModal(
                             label = "Tank Status",
                             value = evaluatedStatus,
-                            status = if (triggeredParams.isEmpty()) "All good" else "Check water",
+                            status = when {
+                                evaluatedStatus.equals("unknown", ignoreCase = true) -> "Unknown"
+                                triggeredParams.isEmpty() -> "All good"
+                                else -> "Check water"
+                            },
                             statusColor = statusTextColor,
                             modifier = Modifier.weight(1f),
                             onLongPress = {
                                 activeSensor = SensorData(
                                     label = "Tank Status",
                                     value = evaluatedStatus,
-                                    status = if (triggeredParams.isEmpty()) "All good" else "Check water",
+                                    status = when {
+                                        evaluatedStatus.equals("unknown", ignoreCase = true) -> "Unknown"
+                                        triggeredParams.isEmpty() -> "All good"
+                                        else -> "Check water"
+                                    },
                                     description = "Overall tank status based on sensor readings."
                                 )
                             },
@@ -1137,31 +1182,36 @@ fun DashboardScreen(
                                             if (it > 125.0) "Turb: High" else null
                                         },
                                         waterLevel.toDoubleOrNull()?.let {
-                                            if (it < 20.0) "Lvl: Low" else null
+                                            if (it < 15.0 || it > 45.0) "Lvl: Abnormal" else null
                                         }
                                     )
 
-                                    if (issues.isEmpty()) {
-                                        Text(
-                                            text = "All parameters normal",
-                                            fontSize = 10.sp,
-                                            color = Color.White
-                                        )
-                                    } else {
-                                        val firstLine = issues.take(2).joinToString(" , ")
-                                        val secondLine = issues.drop(2).joinToString(" , ")
+                                    val hasInvalid = listOf(ph, temperature, dissolvedOxygen, turbidity, waterLevel)
+                                        .any { it.toDoubleOrNull() == null }
 
-                                        Text(
-                                            text = firstLine,
-                                            fontSize = 9.sp,
-                                            color = Color.Black
-                                        )
-                                        if (secondLine.isNotEmpty()) {
+                                    when {
+                                        evaluatedStatus.equals("unknown", ignoreCase = true) || hasInvalid -> {
                                             Text(
-                                                text = secondLine,
-                                                fontSize = 9.sp,
-                                                color = Color.Black
+                                                text = "Insufficient data",
+                                                fontSize = 10.sp,
+                                                color = Color.Gray
                                             )
+                                        }
+                                        issues.isEmpty() -> {
+                                            Text(
+                                                text = "All parameters normal",
+                                                fontSize = 10.sp,
+                                                color = Color.White
+                                            )
+                                        }
+                                        else -> {
+                                            val firstLine = issues.take(2).joinToString(" , ")
+                                            val secondLine = issues.drop(2).joinToString(" , ")
+
+                                            Text(text = firstLine, fontSize = 9.sp, color = Color.Black)
+                                            if (secondLine.isNotEmpty()) {
+                                                Text(text = secondLine, fontSize = 9.sp, color = Color.Black)
+                                            }
                                         }
                                     }
                                 }
@@ -1922,6 +1972,10 @@ fun SensorCardBack(
     }
 }
 
+private fun String.toValidFloatOrNull(): Float? {
+    val cleaned = this.replace("[^0-9.]".toRegex(), "")
+    return cleaned.toFloatOrNull()
+}
 
 
 
